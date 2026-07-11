@@ -126,8 +126,12 @@ function DashboardPageContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
+
+  // Mobile left-side menu
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Tab within the simulated Course Details page
+
   const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "settings">("player");
 
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -2211,6 +2215,30 @@ function DashboardPageContent() {
   // VIEW DIRECTORY ROUTER
   // =========================================================================
 
+  const navItems: { key: string; label: string; tab?: string }[] = isAdminOrEmployee
+    ? [
+        { key: "overview", label: "Overview" },
+        { key: "manage-courses", label: "Manage Courses" },
+        { key: "users", label: "Users" },
+        { key: "settings", label: "Settings" },
+      ]
+    : [
+        { key: "overview", label: "My Learning" },
+        { key: "catalog", label: "Catalog" },
+        { key: "progress", label: "Progress" },
+        { key: "certificates", label: "Certificates" },
+        { key: "settings", label: "Settings" },
+      ];
+
+  const closeMobileMenuAndNavigate = (tabKey: string) => {
+    setIsMobileMenuOpen(false);
+    if (tabKey === "overview") {
+      router.push("/dashboard?tab=overview");
+    } else {
+      router.push(`/dashboard?tab=${tabKey}`);
+    }
+  };
+
   const renderViewContent = () => {
     if (isAdminOrEmployee) {
       switch (currentTab) {
@@ -2246,7 +2274,72 @@ function DashboardPageContent() {
 
   return (
     <>
-      {renderViewContent()}
+      {/* Mobile layout: left menu toggle (|||) */}
+      <div className="md:hidden">
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="fixed left-3 top-3 z-40 rounded-xl bg-blue-600 text-white p-2.5 font-bold shadow-lg hover:bg-blue-700 transition"
+          aria-label="Open dashboard menu"
+          type="button"
+        >
+          <LayoutGrid size={16} />
+        </button>
+
+        {isMobileMenuOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/40"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <div
+              className="absolute left-0 top-0 bottom-0 w-64 bg-white dark:bg-[#121212] border-r border-slate-200 dark:border-zinc-800 p-4 overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="font-bold text-slate-900 dark:text-zinc-50 text-sm">Dashboard</div>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="rounded-lg px-3 py-1 text-xs font-bold border border-slate-200 dark:border-zinc-800"
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {navItems
+                  .filter((item) => isAdminOrEmployee ? true : item.key !== "users")
+                  .map((item) => {
+                    const isActive = currentTab === item.key || (item.key === "overview" && (currentTab === "my-learning"));
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => closeMobileMenuAndNavigate(item.key)}
+                        className={`text-left px-3 py-2 rounded-xl text-sm font-bold transition border ${isActive
+                          ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/40"
+                          : "bg-transparent hover:bg-slate-50 border-transparent dark:hover:bg-zinc-800/40 dark:text-zinc-200"}`}
+                        type="button"
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop/tablet content */}
+      <div
+        className="min-h-screen"
+        style={{
+          // Drawer width (w-64 = 16rem) to avoid header overlap while drawer is open
+          paddingLeft: isMobileMenuOpen ? "256px" : "0px",
+        }}
+      >
+        {renderViewContent()}
+      </div>
+
       <ConfirmModal
         isOpen={modalState.isOpen}
         title={modalState.title}
