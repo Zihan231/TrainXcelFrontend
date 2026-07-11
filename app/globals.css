@@ -32,6 +32,10 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 17px; /* Scales up all relative Tailwind rem font classes globally */
+}
+
 html,
 body {
   height: 100%;

@@ -1,0 +1,161 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { api } from "@/libs/api";
+
+export interface Lesson {
+  id: number;
+  lessonId: string;
+  title: string;
+  description?: string;
+  materialType: string;
+  materialLink: string;
+  status: string;
+}
+
+export interface Course {
+  id: number;
+  courseId: string;
+  name: string;
+  enrolled: number;
+  status: string;
+  categoryId: number;
+  lessons?: Lesson[];
+  categoryName?: string;
+}
+
+export interface UserProfile {
+  id: number;
+  userId: string;
+  email: string;
+  name: string;
+  role: string;
+  phoneNumber?: string;
+  address?: string;
+}
+
+export function useCourses() {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCourses = useCallback(async (query: string = "") => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await api.get(`/courses/search?q=${encodeURIComponent(query)}`);
+      setCourses(response.data || []);
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to fetch courses.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const enrollInCourse = useCallback(async (courseId: string) => {
+    try {
+      const response = await api.post(`/courses/${courseId}/enroll`);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to enroll in course.");
+    }
+  }, []);
+
+  const completeLesson = useCallback(async (courseId: string, lessonId: string) => {
+    try {
+      const response = await api.post(`/courses/${courseId}/lessons/${lessonId}/complete`);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to complete lesson.");
+    }
+  }, []);
+
+  const createCourse = useCallback(async (courseData: { name: string; categoryId: number; status: string; userId: string }) => {
+    try {
+      const response = await api.post("/courses", courseData);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to create course.");
+    }
+  }, []);
+
+  const addLesson = useCallback(async (courseId: string, lessonData: { title: string; materialType: string; materialLink: string; status: string; userId: string }) => {
+    try {
+      const response = await api.post(`/courses/${courseId}/lessons`, lessonData);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to add lesson.");
+    }
+  }, []);
+
+  const searchUsers = useCallback(async (query: string = "") => {
+    try {
+      const response = await api.get(`/auth/users/search?q=${encodeURIComponent(query)}`);
+      return response.data as UserProfile[];
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to search users.");
+    }
+  }, []);
+
+  const updateUserRole = useCallback(async (userId: string, role: string) => {
+    try {
+      const response = await api.patch(`/auth/users/${userId}/role`, { role });
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to update user role.");
+    }
+  }, []);
+
+  const updateProfile = useCallback(async (userId: string, data: { name: string; phoneNumber?: string; address?: string }) => {
+    try {
+      const response = await api.patch(`/auth/users/${userId}`, data);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to update profile.");
+    }
+  }, []);
+
+  const fetchCoursesPaginated = useCallback(async (
+    page: number = 1,
+    limit: number = 6,
+    q: string = "",
+    categoryId: number | null = null,
+    status: string = ""
+  ) => {
+    try {
+      let url = `/courses?page=${page}&limit=${limit}`;
+      if (q) url += `&q=${encodeURIComponent(q)}`;
+      if (categoryId) url += `&categoryId=${categoryId}`;
+      if (status && status !== "all") url += `&status=${status}`;
+      const response = await api.get(url);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to fetch paginated courses.");
+    }
+  }, []);
+
+  const fetchUsersPaginated = useCallback(async (page: number = 1, limit: number = 10) => {
+    try {
+      const response = await api.get(`/auth/users?page=${page}&limit=${limit}`);
+      return response.data;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || "Failed to fetch paginated users.");
+    }
+  }, []);
+
+  return {
+    courses,
+    isLoading,
+    error,
+    fetchCourses,
+    enrollInCourse,
+    completeLesson,
+    createCourse,
+    addLesson,
+    searchUsers,
+    updateUserRole,
+    updateProfile,
+    fetchCoursesPaginated,
+    fetchUsersPaginated,
+  };
+}
