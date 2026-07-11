@@ -430,6 +430,9 @@ function DashboardPageContent() {
       setCourseFormError("Course name is required.");
       return;
     }
+    // Close the form modal first so the confirmation modal is the only interactive overlay
+    setIsCreateCourseModalOpen(false);
+
     triggerConfirm(
       "Create New Course",
       `Are you sure you want to create the course "${newCourseName}"? It will initially be saved as a draft.`,
@@ -1567,7 +1570,12 @@ function DashboardPageContent() {
               {courseFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{courseFormError}</div>}
               {courseFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{courseFormSuccess}</div>}
 
-              <form onSubmit={handleCreateCourse} className="flex flex-col gap-4">
+              <form
+                onSubmit={handleCreateCourse}
+                className="flex flex-col gap-4"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-slate-500">Course Name</label>
                   <input
@@ -2278,8 +2286,18 @@ function ConfirmModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn"
+      onMouseDown={(e) => {
+        // Prevent any interaction with the create-course modal behind.
+        e.stopPropagation();
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50">{title}</h3>
         <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">{message}</p>
         <div className="mt-6 flex justify-end gap-3">
