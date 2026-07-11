@@ -15,8 +15,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem("theme") as Theme | null;
     const initial = stored ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    setTheme(initial);
+
+    // Avoid setState directly in effect (eslint rule)
     document.documentElement.classList.toggle("dark", initial === "dark");
+    setTheme((prev) => (prev === initial ? prev : initial));
   }, []);
 
   const toggle = () => {

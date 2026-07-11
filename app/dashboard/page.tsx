@@ -125,6 +125,7 @@ function DashboardPageContent() {
   // Selected course management page simulation
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
   
   // Tab within the simulated Course Details page
   const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "settings">("player");
@@ -139,6 +140,14 @@ function DashboardPageContent() {
   // Paginated user and course list states
   const [courseViewMode, setCourseViewMode] = useState<"card" | "list">("card");
   const [isCreateCourseModalOpen, setIsCreateCourseModalOpen] = useState(false);
+
+  // Course catalog pagination state
+  const [catalogIsLoading, setCatalogIsLoading] = useState(false);
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogTotalPages, setCatalogTotalPages] = useState(1);
+  const [catalogTotalItems, setCatalogTotalItems] = useState(0);
+  const [catalogCourses, setCatalogCourses] = useState<Course[]>([]);
+
   const [courseFilterCategoryId, setCourseFilterCategoryId] = useState<number | null>(null);
   const [courseFilterStatus, setCourseFilterStatus] = useState<string>("all");
 
@@ -155,7 +164,6 @@ function DashboardPageContent() {
 
   // Course Management Search
   const [courseSearchQuery, setCourseSearchQuery] = useState("");
-  const [courseSearchInput, setCourseSearchInput] = useState("");
 
   // Categories list loaded via API
   const [categoriesList, setCategoriesList] = useState<{ categoryId: number; categoryName: string }[]>([]);
@@ -307,20 +315,19 @@ function DashboardPageContent() {
     }
   }, [fetchUsersPaginated]);
 
-  // Fetch paginated course list
+  // Fetch paginated course list (Admin/Employee manage-courses uses client-side pagination)
   const loadPaginatedCourses = useCallback(async (
-    searchOverride?: string,
+    searchQuery: string = "",
     catOverride?: number | null,
     statusOverride?: string
   ) => {
     setIsCoursesPaginatedLoading(true);
     try {
-      const q = searchOverride !== undefined ? searchOverride : courseSearchQuery;
       const cat = catOverride !== undefined ? catOverride : courseFilterCategoryId;
       const stat = statusOverride !== undefined ? statusOverride : courseFilterStatus;
 
       // Query database with high limit to handle client-side pagination / toggle view mode instantly
-      const res = await fetchCoursesPaginated(1, 1000, q, cat, stat);
+      const res = await fetchCoursesPaginated(1, 1000, searchQuery, cat, stat);
       setManagedCourses(res.data || []);
       setCoursesPage(1);
     } catch (err) {
@@ -328,22 +335,63 @@ function DashboardPageContent() {
     } finally {
       setIsCoursesPaginatedLoading(false);
     }
-  }, [fetchCoursesPaginated, courseSearchQuery, courseFilterCategoryId, courseFilterStatus]);
+  }, [fetchCoursesPaginated, courseFilterCategoryId, courseFilterStatus]);
 
-  // Debounce input to update search query
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setCourseSearchQuery(courseSearchInput);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [courseSearchInput]);
+  // Fetch paginated course catalog (User/Learner uses server-side pagination)
+  const loadCatalogPage = useCallback(
+    async (page: number) => {
+      const pageSize = courseViewMode === "card" ? 6 : 10;
+      setCatalogIsLoading(true);
+      try {
+        const res = await fetchCoursesPaginated(
+          page,
+          pageSize,
+          catalogSearch,
+          activeCategoryFilter,
+          "active"
+        );
 
-  // Load paginated courses when category/status filters change, search query finishes debouncing, or tab is opened
+        setCatalogCourses(res.data || []);
+
+        const meta = res.meta || res.metadata || {};
+        const totalItems = meta.totalItems ?? meta.total_count ?? res.data?.length ?? 0;
+        const totalPages = meta.totalPages ?? meta.total_pages ?? Math.max(1, Math.ceil(totalItems / pageSize));
+
+        setCatalogTotalItems(totalItems);
+        setCatalogTotalPages(totalPages);
+        setCatalogPage(page);
+      } catch (err) {
+        console.error(err);
+        setCatalogCourses([]);
+        setCatalogTotalItems(0);
+        setCatalogTotalPages(1);
+      } finally {
+        setCatalogIsLoading(false);
+      }
+    },
+    [
+      fetchCoursesPaginated,
+      courseViewMode,
+      catalogSearch,
+      activeCategoryFilter,
+    ]
+  );
+
+
+  // Load paginated courses when category/status filters change, or tab is opened
   useEffect(() => {
     if (currentTab === "manage-courses" && isAdminOrEmployee) {
+      // On category/status change, initial search value is the current input query, but we don't trigger this effect on every key press because courseSearchQuery is not in dependencies
       loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
     }
-  }, [courseSearchQuery, courseFilterCategoryId, courseFilterStatus, currentTab, isAdminOrEmployee, loadPaginatedCourses]);
+  }, [courseFilterCategoryId, courseFilterStatus, currentTab, isAdminOrEmployee, loadPaginatedCourses]);
+
+  // Load catalog page when catalog tab/search/filter/view changes
+  useEffect(() => {
+    if (currentTab === "catalog" && !isAdminOrEmployee) {
+      loadCatalogPage(1);
+    }
+  }, [currentTab, isAdminOrEmployee, catalogSearch, activeCategoryFilter, courseViewMode, loadCatalogPage]);
 
   // Live Search with Debounce for User Management (only runs search if query is not empty)
   useEffect(() => {
@@ -358,6 +406,7 @@ function DashboardPageContent() {
       return () => clearTimeout(timer);
     }
   }, [userSearchQuery, usersPage, currentTab, isAdmin, loadUsers, loadPaginatedUsers]);
+
 
   // Recharts styling configs
   const grid = dark ? "#27272a" : "#f1f5f9";
@@ -390,7 +439,6 @@ function DashboardPageContent() {
             name: newCourseName,
             categoryId: Number(newCourseCategory),
             status: newCourseStatus,
-            userId: userId || "",
           });
           setCourseFormSuccess("Course created successfully!");
           setNewCourseName("");
@@ -411,7 +459,7 @@ function DashboardPageContent() {
       `Are you sure you want to change this course status to "${status.toUpperCase()}"? This affects who can view and enroll in it.`,
       async () => {
         try {
-          await api.patch(`/courses/${courseId}`, { status });
+          await api.patch(`/courses/${courseId}/status`, { status });
           const updatedCourses = await api.get(`/courses/search?q=`);
           const freshCourse = updatedCourses.data?.find((c: Course) => c.courseId === courseId);
           if (freshCourse) {
@@ -447,20 +495,14 @@ function DashboardPageContent() {
         try {
           await addLesson(selectedCourse.courseId, {
             title: newLessonTitle,
-            materialType: newLessonType,
+            materialType: newLessonType as "Video" | "PDF" | "PPT",
             materialLink: newLessonLink,
             status: "Active",
-            userId: userId || "",
           });
           setLessonFormSuccess("Lesson added successfully!");
           setNewLessonTitle("");
           setNewLessonLink("");
-          
-          const updatedCourses = await api.get(`/courses/search?q=`);
-          const freshCourse = updatedCourses.data?.find((c: Course) => c.courseId === selectedCourse.courseId);
-          if (freshCourse) {
-            setSelectedCourse(freshCourse);
-          }
+          await loadCourseLessons(selectedCourse.courseId);
           fetchCourses();
         } catch (err: any) {
           setLessonFormError(err.message);
@@ -499,19 +541,14 @@ function DashboardPageContent() {
         try {
           await completeLesson(courseId, lessonId);
           await loadLearnerProgress();
-          const updatedCourses = await api.get(`/courses/search?q=`);
-          const freshCourse = updatedCourses.data?.find((c: Course) => c.courseId === courseId);
-          if (freshCourse) {
-            setSelectedCourse(freshCourse);
-            
-            // Find current lesson index to move to the next lesson if available
-            const currentIdx = freshCourse.lessons?.findIndex((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId) ?? -1;
-            if (currentIdx !== -1 && freshCourse.lessons && currentIdx < freshCourse.lessons.length - 1) {
-              setSelectedLesson(freshCourse.lessons[currentIdx + 1]);
-            } else {
-              const freshLesson = freshCourse.lessons?.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
-              if (freshLesson) setSelectedLesson(freshLesson);
-            }
+          const freshLessons = await loadCourseLessons(courseId);
+          // Move to next lesson if available
+          const currentIdx = freshLessons.findIndex((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
+          if (currentIdx !== -1 && currentIdx < freshLessons.length - 1) {
+            setSelectedLesson(freshLessons[currentIdx + 1]);
+          } else {
+            const freshLesson = freshLessons.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
+            if (freshLesson) setSelectedLesson(freshLesson);
           }
         } catch (err: any) {
           alert(err.message);
@@ -545,11 +582,29 @@ function DashboardPageContent() {
   // VIEW RENDERERS
   // =========================================================================
 
+  // Helper: load lessons from dedicated endpoint and set first lesson as selected
+  const loadCourseLessons = async (courseId: string, autoSelectFirst = false) => {
+    try {
+      const res = await api.get(`/courses/${courseId}/lessons`);
+      const lessons: Lesson[] = res.data || [];
+      setCourseLessons(lessons);
+      if (autoSelectFirst && lessons.length > 0) {
+        setSelectedLesson(lessons[0]);
+      }
+      return lessons;
+    } catch (err) {
+      console.error(err);
+      return [];
+    }
+  };
+
+  // =========================================================================
+
   // YOUTUBE-STYLE DETAILED PLAYER VIEW (For Learners AND Administrators/Employees)
   const renderYouTubePlayerView = () => {
     if (!selectedCourse) return null;
 
-    const lessons = selectedCourse.lessons || [];
+    const lessons = courseLessons;
     const currentProgress = learnerProgress[selectedCourse.courseId] ?? 0;
     const isCompleted = (l: Lesson) => {
       if (!l) return false;
@@ -837,7 +892,10 @@ function DashboardPageContent() {
               <span className="text-[10px] font-bold text-slate-400 uppercase">{lessons.length} Items</span>
             </div>
 
-            <div className="flex flex-col gap-2 overflow-y-auto max-h-[460px] pr-1">
+            <div
+              className="flex flex-col gap-2 overflow-y-auto pr-1 select-none"
+              style={{ maxHeight: "500px", scrollbarWidth: "thin" }}
+            >
               {lessons.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-400">No lessons available in this course.</div>
               ) : (
@@ -1213,16 +1271,33 @@ function DashboardPageContent() {
         {/* Filter / View switcher bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm">
           <div className="flex flex-1 flex-col sm:flex-row items-center gap-3 max-w-2xl">
-            {/* Search */}
-            <div className="relative flex-1 w-full">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={courseSearchInput}
-                onChange={(e) => setCourseSearchInput(e.target.value)}
-                placeholder="Search managed courses by name or ID..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
-              />
+            {/* Search Input and Button Group */}
+            <div className="flex flex-1 w-full gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={courseSearchQuery}
+                  onChange={(e) => setCourseSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setCoursesPage(1);
+                      loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+                    }
+                  }}
+                  placeholder="Search managed courses by name or ID..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setCoursesPage(1);
+                  loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+                }}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition shrink-0"
+              >
+                Search
+              </button>
             </div>
 
             {/* Category Select Dropdown */}
@@ -1361,7 +1436,7 @@ function DashboardPageContent() {
                         setActionLoading(true);
                         const res = await api.get(`/courses/${c.courseId}`);
                         setSelectedCourse(res.data);
-                        setSelectedLesson(res.data.lessons?.[0] || null);
+                        await loadCourseLessons(c.courseId, true);
                       } catch (err: any) {
                         alert(err.message);
                       } finally {
@@ -1428,7 +1503,7 @@ function DashboardPageContent() {
                               setActionLoading(true);
                               const res = await api.get(`/courses/${c.courseId}`);
                               setSelectedCourse(res.data);
-                              setSelectedLesson(res.data.lessons?.[0] || null);
+                              await loadCourseLessons(c.courseId, true);
                             } catch (err: any) {
                               alert(err.message);
                             } finally {
@@ -1707,9 +1782,9 @@ function DashboardPageContent() {
                 <div
                   key={c.courseId}
                   className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between hover:border-slate-300 hover:shadow-md transition cursor-pointer"
-                  onClick={() => {
+                  onClick={async () => {
                     setSelectedCourse(c);
-                    setSelectedLesson(c.lessons?.[0] || null);
+                    await loadCourseLessons(c.courseId, true);
                   }}
                 >
                   <div>
@@ -1737,117 +1812,235 @@ function DashboardPageContent() {
     );
   };
 
-  // RENDER COURSE CATALOG WITH INTEGRATED SEARCH BAR (User/Learner Only)
+  // RENDER COURSE CATALOG (User/Learner Only) - Grid/List, search, category filter, pagination
   const renderCourseCatalog = () => {
-    // Filter active courses
-    const catalogCourses = allCourses.filter((c) => {
-      const isStatusActive = c.status === "active";
-      const matchesSearch = c.name.toLowerCase().includes(catalogSearch.toLowerCase()) || c.courseId.toLowerCase().includes(catalogSearch.toLowerCase());
-      const matchesCategory = activeCategoryFilter ? c.categoryId === activeCategoryFilter : true;
-      return isStatusActive && matchesSearch && matchesCategory;
-    });
+    const pageSize = courseViewMode === "card" ? 6 : 10;
+    const noResults = !catalogIsLoading && catalogCourses.length === 0;
 
     return (
-      <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">Course Catalog</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Search and register for professional development training sessions.</p>
+      <div className="flex flex-col gap-5 pb-6 animate-fadeIn">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">Course Catalog</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Search and register for professional development training sessions.</p>
+          </div>
         </div>
 
-        {/* Catalog Search & Category Filters */}
-        <div className="flex flex-col gap-4 bg-white p-5 rounded-2xl border border-slate-200 dark:bg-[#121212] dark:border-zinc-800 shadow-sm">
-          <div className="flex gap-3">
-            <div className="relative flex-1">
-              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text" value={catalogSearch} onChange={(e) => setCatalogSearch(e.target.value)}
-                placeholder="Search catalog by keywords, course IDs, or skills..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-11 pr-4 text-sm text-slate-900 focus:outline-none focus:border-blue-600 focus:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:focus:bg-zinc-900 transition"
-              />
+        {/* Filter / View switcher bar (Admin-style) */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm">
+          <div className="flex flex-1 flex-col sm:flex-row items-center gap-3 max-w-2xl">
+            {/* Search Input */}
+            <div className="flex flex-1 w-full gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") loadCatalogPage(1);
+                  }}
+                  placeholder="Search catalog by name or ID..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                />
+              </div>
+              <button
+                onClick={() => loadCatalogPage(1)}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition shrink-0"
+              >
+                Search
+              </button>
             </div>
-            {catalogSearch && (
-              <button
-                onClick={() => setCatalogSearch("")}
-                className="rounded-xl border border-slate-200 text-xs font-semibold px-4 py-2 hover:bg-slate-50 transition dark:border-zinc-800 dark:text-zinc-300"
+
+            {/* Category Select */}
+            <div className="w-full sm:w-48">
+              <select
+                value={activeCategoryFilter ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const catId = val === "" ? null : Number(val);
+                  setActiveCategoryFilter(catId);
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
               >
-                Clear
-              </button>
-            )}
+                <option value="">All Categories</option>
+                {categoriesList.map((cat) => (
+                  <option key={cat.categoryId} value={cat.categoryId}>
+                    {cat.categoryName}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
-            <Filter size={13} className="text-slate-400 mr-2" />
-            <button
-              onClick={() => setActiveCategoryFilter(null)}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${!activeCategoryFilter ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
-            >
-              All Categories
-            </button>
-            {categoriesList.map((cat) => (
+          {/* Grid/List switcher */}
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-1.5 border-l pl-4 border-slate-100 dark:border-zinc-800/80">
               <button
-                key={cat.categoryId}
-                onClick={() => setActiveCategoryFilter(cat.categoryId)}
-                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${activeCategoryFilter === cat.categoryId ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
+                onClick={() => setCourseViewMode("card")}
+                className={`rounded-lg p-1.5 text-xs font-bold transition flex items-center gap-1 ${courseViewMode === "card" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400" : "text-slate-655 hover:bg-slate-50 dark:text-zinc-400 dark:hover:bg-zinc-850"}`}
+                title="Grid View"
               >
-                {cat.categoryName}
+                <LayoutGrid size={15} />
+                <span className="hidden lg:inline">Grid</span>
               </button>
-            ))}
+              <button
+                onClick={() => setCourseViewMode("list")}
+                className={`rounded-lg p-1.5 text-xs font-bold transition flex items-center gap-1 ${courseViewMode === "list" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400" : "text-slate-655 hover:bg-slate-50 dark:text-zinc-400 dark:hover:bg-zinc-850"}`}
+                title="List View"
+              >
+                <List size={15} />
+                <span className="hidden lg:inline">List</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {isCoursesLoading ? (
+        {catalogIsLoading ? (
           <LoadingSpinner />
-        ) : catalogCourses.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-2xl border border-slate-200 dark:bg-[#121212] dark:border-zinc-800">
-            <p className="text-sm text-slate-400">No courses match your query. Try searching with different terms.</p>
+        ) : noResults ? (
+          <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 dark:bg-[#121212] dark:border-zinc-800">
+            <p className="text-sm text-slate-400">No active courses match your query.</p>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        ) : courseViewMode === "card" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {catalogCourses.map((c) => {
               const progress = learnerProgress[c.courseId];
               const isEnrolled = progress !== undefined && progress >= 0;
+              const catName = categoriesList.find((cat) => cat.categoryId === c.categoryId)?.categoryName || c.categoryName || "Training";
+              const catStyle = getCategoryStyle(catName);
+
               return (
-                <div key={c.courseId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between hover:border-slate-300 transition">
+                <div
+                  key={c.courseId}
+                  className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-slate-300 dark:border-zinc-800 dark:bg-[#121212] dark:hover:border-zinc-700 transition flex flex-col justify-between"
+                >
                   <div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                        {categoriesList.find(cat => cat.categoryId === c.categoryId)?.categoryName || c.categoryName || "Training"}
+                    <div className="flex justify-between items-center mb-2">
+                      <span className={`inline-block rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text}`}>
+                        {catName}
                       </span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">ACTIVE</span>
                     </div>
-                    <h3 className="font-bold text-slate-900 dark:text-zinc-50 mt-3">{c.name}</h3>
-                    <p className="text-xs text-slate-400 mt-1">Contains {c.lessons?.length ?? 0} lessons</p>
+                    <h4 className="text-base font-bold text-slate-900 group-hover:text-blue-600 transition dark:text-zinc-50 line-clamp-1">{c.name}</h4>
+                    <p className="text-[11px] text-slate-450 dark:text-zinc-500 font-mono mt-0.5">ID: {c.courseId}</p>
                   </div>
-                  <div className="mt-8 flex items-center justify-between">
+
+                  <div className="mt-5 pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+                    <div className="text-left">
+                      <span className="text-[10px] text-slate-400 block font-medium">Chapters</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.lessons?.length ?? 0}</span>
+                    </div>
+
                     {isEnrolled ? (
-                      <>
-                        <span className="text-xs font-semibold text-green-600 dark:text-green-400">Enrolled ({progress}%)</span>
-                        <button
-                          onClick={() => {
-                            setSelectedCourse(c);
-                            setSelectedLesson(c.lessons?.[0] || null);
-                            router.push("/dashboard?tab=my-learning");
-                          }}
-                          className="rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-2 transition dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                        >
-                          Resume Course
-                        </button>
-                      </>
+                      <button
+                        onClick={async () => {
+                          setSelectedCourse(c);
+                          await loadCourseLessons(c.courseId, true);
+                          router.push("/dashboard?tab=my-learning");
+                        }}
+                        className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                      >
+                        Resume →
+                      </button>
                     ) : (
-                      <>
-                        <span className="text-xs text-slate-400">{c.enrolled} learners enrolled</span>
-                        <button
-                          onClick={() => handleEnroll(c.courseId)}
-                          disabled={actionLoading}
-                          className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
-                        >
-                          Enroll Now
-                        </button>
-                      </>
+                      <button
+                        onClick={() => handleEnroll(c.courseId)}
+                        disabled={actionLoading}
+                        className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 transition disabled:opacity-50"
+                      >
+                        Enroll Now
+                      </button>
                     )}
                   </div>
                 </div>
               );
             })}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden dark:border-zinc-800 dark:bg-[#121212] shadow-sm animate-fadeIn">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 text-slate-400 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30 font-bold text-xs uppercase">
+                    <th className="py-2.5 px-4">Course ID</th>
+                    <th className="py-2.5 px-4">Course Name</th>
+                    <th className="py-2.5 px-4">Category</th>
+                    <th className="py-2.5 px-4">Chapters</th>
+                    <th className="py-2.5 px-4">Learners</th>
+                    <th className="py-2.5 px-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catalogCourses.map((c) => {
+                    const progress = learnerProgress[c.courseId];
+                    const isEnrolled = progress !== undefined && progress >= 0;
+                    const catName = categoriesList.find((cat) => cat.categoryId === c.categoryId)?.categoryName || c.categoryName || "Training";
+                    const catStyle = getCategoryStyle(catName);
+                    return (
+                      <tr key={c.courseId} className="border-b border-slate-100 hover:bg-slate-50/50 dark:border-zinc-800 dark:hover:bg-zinc-800/10 transition">
+                        <td className="py-2.5 px-4 font-mono text-sm font-bold text-slate-550 dark:text-zinc-400">{c.courseId}</td>
+                        <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-zinc-100 text-sm truncate max-w-xs">{c.name}</td>
+                        <td className="py-2.5 px-4 text-xs font-semibold">
+                          <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text}`}>
+                            {catName}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 text-sm font-semibold text-slate-650 dark:text-zinc-350">{c.lessons?.length ?? 0}</td>
+                        <td className="py-2.5 px-4 text-sm font-semibold text-slate-650 dark:text-zinc-350">{c.enrolled}</td>
+                        <td className="py-2.5 px-4">
+                          {isEnrolled ? (
+                            <button
+                              onClick={async () => {
+                                setSelectedCourse(c);
+                                await loadCourseLessons(c.courseId, true);
+                                router.push("/dashboard?tab=my-learning");
+                              }}
+                              className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                            >
+                              Resume
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleEnroll(c.courseId)}
+                              disabled={actionLoading}
+                              className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 transition disabled:opacity-50"
+                            >
+                              Enroll
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {catalogTotalPages > 1 && (
+          <div className="flex items-center justify-between bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-2xl p-3 shadow-sm animate-fadeIn">
+            <span className="text-xs font-semibold text-slate-500">
+              Page {catalogPage} of {catalogTotalPages} ({catalogTotalItems} total courses)
+            </span>
+            <div className="flex gap-2">
+              <button
+                disabled={catalogPage <= 1}
+                onClick={() => loadCatalogPage(Math.max(1, catalogPage - 1))}
+                className="rounded-xl border border-slate-200 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
+              >
+                Previous
+              </button>
+              <button
+                disabled={catalogPage >= catalogTotalPages}
+                onClick={() => loadCatalogPage(Math.min(catalogTotalPages, catalogPage + 1))}
+                className="rounded-xl border border-slate-200 px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -1857,6 +2050,11 @@ function DashboardPageContent() {
   // RENDER LEARNER PROGRESS REPORT (User/Learner Only)
   const renderLearnerProgressReport = () => {
     if (isCoursesLoading) return <LoadingSpinner />;
+
+    // When courses are loaded but progress is still being hydrated, show loader
+    const needsProgressHydration = !allCourses.length || Object.keys(learnerProgress).length === 0;
+    if (needsProgressHydration) return <LoadingSpinner />;
+
 
     const enrolledCourses = allCourses.filter((c) => {
       const p = learnerProgress[c.courseId];

@@ -3,6 +3,15 @@
 import { useState, useCallback } from "react";
 import { api } from "@/libs/api";
 
+type ApiErrorShape = {
+  response?: {
+    data?: {
+      message?: string;
+    };
+  };
+};
+
+
 export interface Lesson {
   id: number;
   lessonId: string;
@@ -45,8 +54,10 @@ export function useCourses() {
     try {
       const response = await api.get(`/courses/search?q=${encodeURIComponent(query)}`);
       setCourses(response.data || []);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to fetch courses.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      setError(message || "Failed to fetch courses.");
+
     } finally {
       setIsLoading(false);
     }
@@ -56,8 +67,10 @@ export function useCourses() {
     try {
       const response = await api.post(`/courses/${courseId}/enroll`);
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to enroll in course.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to enroll in course.");
+
     }
   }, []);
 
@@ -65,35 +78,55 @@ export function useCourses() {
     try {
       const response = await api.post(`/courses/${courseId}/lessons/${lessonId}/complete`);
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to complete lesson.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to complete lesson.");
+
     }
   }, []);
 
-  const createCourse = useCallback(async (courseData: { name: string; categoryId: number; status: string; userId: string }) => {
+  const createCourse = useCallback(async (courseData: { name: string; categoryId?: number; status?: string }) => {
     try {
       const response = await api.post("/courses", courseData);
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to create course.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to create course.");
+
     }
   }, []);
 
-  const addLesson = useCallback(async (courseId: string, lessonData: { title: string; materialType: string; materialLink: string; status: string; userId: string }) => {
-    try {
-      const response = await api.post(`/courses/${courseId}/lessons`, lessonData);
-      return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to add lesson.");
-    }
-  }, []);
+  const addLesson = useCallback(
+    async (
+      courseId: string,
+      lessonData: {
+        title: string;
+        description?: string;
+        materialType: "Video" | "PDF" | "PPT";
+        materialLink: string;
+        status?: string;
+      }
+    ) => {
+      try {
+        const response = await api.post(`/courses/${courseId}/lessons`, lessonData);
+        return response.data;
+      } catch (err) {
+        const message = (err as ApiErrorShape)?.response?.data?.message;
+        throw new Error(message || "Failed to add lesson.");
+      }
+
+    },
+    []
+  );
+
 
   const searchUsers = useCallback(async (query: string = "") => {
     try {
       const response = await api.get(`/auth/users/search?q=${encodeURIComponent(query)}`);
       return response.data as UserProfile[];
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to search users.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to search users.");
     }
   }, []);
 
@@ -101,8 +134,9 @@ export function useCourses() {
     try {
       const response = await api.patch(`/auth/users/${userId}/role`, { role });
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to update user role.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to update user role.");
     }
   }, []);
 
@@ -110,10 +144,12 @@ export function useCourses() {
     try {
       const response = await api.patch(`/auth/users/${userId}`, data);
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to update profile.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to update profile.");
     }
   }, []);
+
 
   const fetchCoursesPaginated = useCallback(async (
     page: number = 1,
@@ -129,18 +165,22 @@ export function useCourses() {
       if (status && status !== "all") url += `&status=${status}`;
       const response = await api.get(url);
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to fetch paginated courses.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to fetch paginated courses.");
     }
   }, []);
+
 
   const fetchUsersPaginated = useCallback(async (page: number = 1, limit: number = 10) => {
     try {
       const response = await api.get(`/auth/users?page=${page}&limit=${limit}`);
       return response.data;
-    } catch (err: any) {
-      throw new Error(err.response?.data?.message || "Failed to fetch paginated users.");
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to fetch paginated users.");
     }
+
   }, []);
 
   return {
