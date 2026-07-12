@@ -53,6 +53,7 @@ export interface RecentActivity {
   courseId: string;
   courseName: string;
   message: string;
+  timestamp: string;
 }
 
 export interface UserPerformance {

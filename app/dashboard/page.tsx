@@ -1409,7 +1409,14 @@ function DashboardPageContent() {
                     {a.userName.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-800 dark:text-zinc-300 leading-relaxed">{a.message}</p>
+                    <div className="flex justify-between items-start gap-2">
+                      <p className="text-xs font-semibold text-slate-800 dark:text-zinc-300 leading-relaxed">{a.message}</p>
+                      {a.timestamp && (
+                        <span className="text-[10px] text-slate-400 dark:text-zinc-500 shrink-0 whitespace-nowrap mt-0.5">
+                          {new Date(a.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-slate-450 dark:text-zinc-500 font-mono">
                       <span className="bg-slate-50 dark:bg-zinc-800/65 px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-500 dark:text-zinc-450 border border-slate-100 dark:border-zinc-800/40">UID: {a.userId}</span>
                       <span className="text-slate-300 dark:text-zinc-650">|</span>
