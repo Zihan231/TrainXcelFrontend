@@ -12,7 +12,7 @@ import {
   AlertTriangle, Activity, Trophy, PlusCircle, CheckCircle,
   Play, FileText, ExternalLink, ShieldAlert, Award, Search,
   Check, BookOpenCheck, Settings, ArrowLeft, MonitorPlay, Sparkles, Filter,
-  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw
+  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2
 } from "lucide-react";
 import {
   AreaChart, Area,
@@ -100,7 +100,8 @@ function DashboardPageContent() {
   const {
     stats, monthly, courseComparison, categories,
     materials, atRisk, recentActivity, userPerformance,
-    isLoading: isStatsLoading, error: statsError,
+    isLoading: isStatsLoading, error: statsError, fetchUserPerformance, fetchCategories, fetchAtRisk,
+    isFetchingLeaderboard, isFetchingCategories, isFetchingAtRisk
   } = useDashboardStats();
 
   // Course hook (Used by both admin & learners)
@@ -266,8 +267,8 @@ function DashboardPageContent() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const res = await api.get("/courses/stats/categories");
-        const list = (res.data || []).map((cat: any) => ({
+        const res = await api.get("/courses/stats/categories?limit=100");
+        const list = (res.data.data || []).map((cat: any) => ({
           categoryId: cat.categoryId,
           categoryName: cat.categoryName,
         }));
@@ -1312,8 +1313,13 @@ function DashboardPageContent() {
           </Card>
 
           <Card title="Category Performance" subtitle="Avg progress per category">
-            <div className="flex flex-col gap-4.5 pt-2">
-              {categories.map((cat, i) => {
+            <div className="flex flex-col gap-4.5 pt-2 relative h-full min-h-[250px]">
+              {isFetchingCategories && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-zinc-950/50 rounded-lg">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                </div>
+              )}
+              {categories?.data?.map((cat, i) => {
                 const color = getColor(i);
                 return (
                   <div key={cat.categoryId}>
@@ -1334,6 +1340,21 @@ function DashboardPageContent() {
                   </div>
                 );
               })}
+              {categories && categories.totalPages > 1 && (
+                <div className="mt-auto pt-2 flex items-center justify-between text-xs font-semibold">
+                  <button 
+                    disabled={categories.page === 1}
+                    onClick={() => fetchCategories(categories.page - 1)}
+                    className="disabled:opacity-50 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-50"
+                  >Prev</button>
+                  <span className="text-slate-400">Page {categories.page} of {categories.totalPages}</span>
+                  <button 
+                    disabled={categories.page === categories.totalPages}
+                    onClick={() => fetchCategories(categories.page + 1)}
+                    className="disabled:opacity-50 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-50"
+                  >Next</button>
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -1341,18 +1362,23 @@ function DashboardPageContent() {
         {/* Row 3: Leaderboard + At-Risk + Activity */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card title="Leaderboard" subtitle="Ranked by average progress" icon={<Trophy size={14} className="text-amber-500" />}>
-            <div className="mt-3 flex flex-col gap-1">
-              {userPerformance.map((u, i) => (
+            <div className="mt-3 flex flex-col gap-1 relative h-full min-h-[250px]">
+              {isFetchingLeaderboard && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-zinc-950/50 rounded-lg">
+                  <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
+                </div>
+              )}
+              {userPerformance?.data?.map((u, i) => (
                 <div key={u.userId} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-slate-50/50 dark:hover:bg-zinc-800/20">
                   <span className="w-5 shrink-0 text-center text-sm flex justify-center">
-                    {i === 0 ? (
+                    {i === 0 && userPerformance.page === 1 ? (
                       <Trophy size={14} className="text-amber-500" />
-                    ) : i === 1 ? (
+                    ) : i === 1 && userPerformance.page === 1 ? (
                       <Trophy size={14} className="text-slate-400" />
-                    ) : i === 2 ? (
+                    ) : i === 2 && userPerformance.page === 1 ? (
                       <Trophy size={14} className="text-amber-700" />
                     ) : (
-                      <span className="text-xs font-bold text-slate-400">{i + 1}</span>
+                      <span className="text-xs font-bold text-slate-400">{(userPerformance.page - 1) * 6 + i + 1}</span>
                     )}
                   </span>
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style={{ backgroundColor: getColor(i) }}>
@@ -1371,19 +1397,39 @@ function DashboardPageContent() {
                   </div>
                 </div>
               ))}
+              {userPerformance && userPerformance.totalPages > 1 && (
+                <div className="mt-auto pt-2 flex items-center justify-between px-2 text-xs font-semibold">
+                  <button 
+                    disabled={userPerformance.page === 1}
+                    onClick={() => fetchUserPerformance(userPerformance.page - 1)}
+                    className="disabled:opacity-50 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-50"
+                  >Prev</button>
+                  <span className="text-slate-400">Page {userPerformance.page} of {userPerformance.totalPages}</span>
+                  <button 
+                    disabled={userPerformance.page === userPerformance.totalPages}
+                    onClick={() => fetchUserPerformance(userPerformance.page + 1)}
+                    className="disabled:opacity-50 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-50"
+                  >Next</button>
+                </div>
+              )}
             </div>
           </Card>
 
           <Card title="At-Risk Learners" subtitle="Enrolled with 0% progress" icon={<AlertTriangle size={14} className="text-amber-500" />}>
-            <div className="mt-3">
-              {atRisk.length === 0 ? (
+            <div className="mt-3 relative h-full flex flex-col min-h-[250px]">
+              {isFetchingAtRisk && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-zinc-950/50 rounded-lg">
+                  <Loader2 className="h-6 w-6 animate-spin text-red-500" />
+                </div>
+              )}
+              {!atRisk?.data || atRisk.data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-10">
                   <CheckCircle className="h-10 w-10 text-green-500" />
                   <p className="text-sm font-medium text-slate-500 dark:text-zinc-400">No at-risk learners!</p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {atRisk.map((u) => (
+                  {atRisk.data.map((u) => (
                     <div key={`${u.userId}-${u.courseId}`} className="rounded-xl border border-amber-100 bg-gradient-to-r from-amber-50 to-orange-50 p-4 dark:border-amber-900/20 dark:from-amber-900/10 dark:to-orange-900/10">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -1396,13 +1442,28 @@ function DashboardPageContent() {
                       </div>
                     </div>
                   ))}
+                  {atRisk && atRisk.totalPages > 1 && (
+                    <div className="mt-auto pt-2 flex items-center justify-between px-2 text-xs font-semibold">
+                      <button 
+                        disabled={atRisk.page === 1}
+                        onClick={() => fetchAtRisk(atRisk.page - 1)}
+                        className="disabled:opacity-50 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-50"
+                      >Prev</button>
+                      <span className="text-slate-400">Page {atRisk.page} of {atRisk.totalPages}</span>
+                      <button 
+                        disabled={atRisk.page === atRisk.totalPages}
+                        onClick={() => fetchAtRisk(atRisk.page + 1)}
+                        className="disabled:opacity-50 text-slate-500 hover:text-slate-900 dark:hover:text-zinc-50"
+                      >Next</button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </Card>
 
           <Card title="Recent Activity" subtitle="Latest platform actions" icon={<Activity size={14} className="text-blue-500" />}>
-            <div className="mt-3 flex flex-col">
+            <div className="mt-3 flex flex-col relative h-full min-h-[250px]">
               {recentActivity.slice(0, 5).map((a, i) => (
                 <div key={a.activityId} className="flex items-start gap-3 border-b border-slate-100 py-3 last:border-0 dark:border-zinc-800">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white bg-blue-600" style={{ backgroundColor: getColor(i) }}>

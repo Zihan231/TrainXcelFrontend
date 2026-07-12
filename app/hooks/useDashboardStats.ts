@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 import { api } from "@/libs/api";
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 export interface DashboardStats {
   totalUsers: number;
   totalCourses: number;
@@ -70,12 +77,15 @@ export function useDashboardStats() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [monthly, setMonthly] = useState<MonthlyProgress[]>([]);
   const [courseComparison, setCourseComparison] = useState<CourseComparison[]>([]);
-  const [categories, setCategories] = useState<CategoryStat[]>([]);
+  const [categories, setCategories] = useState<PaginatedResponse<CategoryStat> | null>(null);
   const [materials, setMaterials] = useState<MaterialStat[]>([]);
-  const [atRisk, setAtRisk] = useState<AtRiskUser[]>([]);
+  const [atRisk, setAtRisk] = useState<PaginatedResponse<AtRiskUser> | null>(null);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
-  const [userPerformance, setUserPerformance] = useState<UserPerformance[]>([]);
+  const [userPerformance, setUserPerformance] = useState<PaginatedResponse<UserPerformance> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingLeaderboard, setIsFetchingLeaderboard] = useState(false);
+  const [isFetchingCategories, setIsFetchingCategories] = useState(false);
+  const [isFetchingAtRisk, setIsFetchingAtRisk] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -94,11 +104,11 @@ export function useDashboardStats() {
           api.get("/courses/stats/dashboard"),
           api.get("/courses/stats/monthly-progress"),
           api.get("/courses/stats/course-progress-comparison"),
-          api.get("/courses/stats/categories"),
+          api.get("/courses/stats/categories?page=1&limit=6"),
           api.get("/courses/stats/materials"),
-          api.get("/courses/stats/at-risk"),
+          api.get("/courses/stats/at-risk?page=1&limit=6"),
           api.get("/courses/stats/recent-activity"),
-          api.get("/courses/stats/user-performance"),
+          api.get("/courses/stats/user-performance?page=1&limit=6"),
         ]);
 
         setStats(statsRes.data);
@@ -118,6 +128,42 @@ export function useDashboardStats() {
     fetchAll();
   }, []);
 
+  const fetchUserPerformance = async (page: number) => {
+    setIsFetchingLeaderboard(true);
+    try {
+      const res = await api.get(`/courses/stats/user-performance?page=${page}&limit=6`);
+      setUserPerformance(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsFetchingLeaderboard(false);
+    }
+  };
+
+  const fetchCategories = async (page: number) => {
+    setIsFetchingCategories(true);
+    try {
+      const res = await api.get(`/courses/stats/categories?page=${page}&limit=6`);
+      setCategories(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsFetchingCategories(false);
+    }
+  };
+
+  const fetchAtRisk = async (page: number) => {
+    setIsFetchingAtRisk(true);
+    try {
+      const res = await api.get(`/courses/stats/at-risk?page=${page}&limit=6`);
+      setAtRisk(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsFetchingAtRisk(false);
+    }
+  };
+
   return {
     stats,
     monthly,
@@ -129,5 +175,11 @@ export function useDashboardStats() {
     userPerformance,
     isLoading,
     error,
+    fetchUserPerformance,
+    fetchCategories,
+    fetchAtRisk,
+    isFetchingLeaderboard,
+    isFetchingCategories,
+    isFetchingAtRisk,
   };
 }
