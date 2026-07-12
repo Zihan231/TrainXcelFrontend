@@ -12,7 +12,7 @@ import {
   AlertTriangle, Activity, Trophy, PlusCircle, CheckCircle,
   Play, FileText, ExternalLink, ShieldAlert, Award, Search,
   Check, BookOpenCheck, Settings, ArrowLeft, MonitorPlay, Sparkles, Filter,
-  Maximize2, LayoutGrid, List
+  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw
 } from "lucide-react";
 import {
   AreaChart, Area,
@@ -116,6 +116,15 @@ function DashboardPageContent() {
     updateUserRole,
     fetchCoursesPaginated,
     fetchUsersPaginated,
+    softDeleteCourse,
+    softDeleteLesson,
+    fetchTrash,
+    restoreCourse,
+    restoreLesson,
+    hardDeleteCourse,
+    hardDeleteLesson,
+    emptyTrash,
+    createEmployee,
   } = useCourses();
 
   // Learner/User State
@@ -126,6 +135,7 @@ function DashboardPageContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
+  const [recentlyViewed, setRecentlyViewed] = useState<Course[]>([]);
 
   // Mobile left-side menu
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -144,6 +154,8 @@ function DashboardPageContent() {
   // Paginated user and course list states
   const [courseViewMode, setCourseViewMode] = useState<"card" | "list">("card");
   const [isCreateCourseModalOpen, setIsCreateCourseModalOpen] = useState(false);
+  const [deletedLessonDetails, setDeletedLessonDetails] = useState<any | null>(null);
+  const [showEmployeePassword, setShowEmployeePassword] = useState(false);
 
   // Course catalog pagination state
   const [catalogIsLoading, setCatalogIsLoading] = useState(false);
@@ -169,6 +181,13 @@ function DashboardPageContent() {
   // Course Management Search
   const [courseSearchQuery, setCourseSearchQuery] = useState("");
 
+  // Recycle Bin / Trash State
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  const [trashItems, setTrashItems] = useState<any[]>([]);
+  const [trashQuery, setTrashQuery] = useState<string>("");
+  const [trashType, setTrashType] = useState<"all" | "course" | "lesson">("all");
+  const [trashSortOrder, setTrashSortOrder] = useState<"ASC" | "DESC">("DESC");
+
   // Categories list loaded via API
   const [categoriesList, setCategoriesList] = useState<{ categoryId: number; categoryName: string }[]>([]);
 
@@ -184,6 +203,18 @@ function DashboardPageContent() {
   const [newLessonLink, setNewLessonLink] = useState("");
   const [lessonFormError, setLessonFormError] = useState("");
   const [lessonFormSuccess, setLessonFormSuccess] = useState("");
+
+  // Create Employee Form states
+  const [isCreateEmployeeModalOpen, setIsCreateEmployeeModalOpen] = useState(false);
+  const [employeeEmail, setEmployeeEmail] = useState("");
+  const [employeeName, setEmployeeName] = useState("");
+  const [employeePassword, setEmployeePassword] = useState("");
+  const [employeePhone, setEmployeePhone] = useState("");
+  const [employeeAddress, setEmployeeAddress] = useState("");
+  const [employeeRole, setEmployeeRole] = useState("employee");
+  const [employeeFormError, setEmployeeFormError] = useState("");
+  const [employeeFormSuccess, setEmployeeFormSuccess] = useState("");
+  const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
 
   // Loading indicators for actions
   const [actionLoading, setActionLoading] = useState(false);
@@ -250,6 +281,46 @@ function DashboardPageContent() {
     };
     fetchCategories();
   }, []);
+
+  // Handle recently viewed courses synchronization with localStorage
+  const addToRecentlyViewed = useCallback((course: Course) => {
+    if (!course || !course.courseId) return;
+    const key = `recently_viewed_${userId || 'global'}`;
+    try {
+      const stored = localStorage.getItem(key);
+      let list: Course[] = stored ? JSON.parse(stored) : [];
+      list = list.filter(item => item.courseId !== course.courseId);
+      list.unshift(course);
+      if (list.length > 5) {
+        list = list.slice(0, 5);
+      }
+      localStorage.setItem(key, JSON.stringify(list));
+      setRecentlyViewed(list);
+    } catch (e) {
+      console.error("Failed to update recently viewed courses", e);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    const key = `recently_viewed_${userId || 'global'}`;
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        setRecentlyViewed(JSON.parse(stored));
+      } else {
+        setRecentlyViewed([]);
+      }
+    } catch (e) {
+      console.error("Failed to load recently viewed courses", e);
+      setRecentlyViewed([]);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (selectedCourse && selectedCourse.courseId) {
+      addToRecentlyViewed(selectedCourse);
+    }
+  }, [selectedCourse, addToRecentlyViewed]);
 
   // Live Search with Debounce for Course Catalog
   useEffect(() => {
@@ -390,6 +461,17 @@ function DashboardPageContent() {
     }
   }, [courseFilterCategoryId, courseFilterStatus, currentTab, isAdminOrEmployee, loadPaginatedCourses]);
 
+  // Live search: debounce the course search query so we only fire after the user stops typing (400ms)
+  useEffect(() => {
+    if (currentTab !== "manage-courses" || !isAdminOrEmployee) return;
+    const timer = setTimeout(() => {
+      setCoursesPage(1);
+      loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseSearchQuery]);
+
   // Load catalog page when catalog tab/search/filter/view changes
   useEffect(() => {
     if (currentTab === "catalog" && !isAdminOrEmployee) {
@@ -411,6 +493,25 @@ function DashboardPageContent() {
     }
   }, [userSearchQuery, usersPage, currentTab, isAdmin, loadUsers, loadPaginatedUsers]);
 
+  const loadTrash = useCallback(async () => {
+    setIsLoadingTrash(true);
+    try {
+      const res = await fetchTrash({ q: trashQuery, type: trashType, sortOrder: trashSortOrder });
+      const list = res?.data ?? res?.items ?? res ?? [];
+      setTrashItems(Array.isArray(list) ? list : []);
+    } catch (err: any) {
+      alert(err?.message || "Failed to load recycle bin.");
+      setTrashItems([]);
+    } finally {
+      setIsLoadingTrash(false);
+    }
+  }, [fetchTrash, trashQuery, trashType, trashSortOrder]);
+
+  useEffect(() => {
+    if (currentTab === "trash" && isAdminOrEmployee) {
+      loadTrash();
+    }
+  }, [currentTab, loadTrash, isAdminOrEmployee]);
 
   // Recharts styling configs
   const grid = dark ? "#27272a" : "#f1f5f9";
@@ -565,6 +666,45 @@ function DashboardPageContent() {
     );
   };
 
+  const confirmSoftDeleteCourse = (courseId: string) => {
+    triggerConfirm(
+      "Move Course to Recycle Bin",
+      "Are you sure you want to delete this course? It will be moved to the recycle bin (soft delete).",
+      async () => {
+        try {
+          await softDeleteCourse(courseId);
+          if (selectedCourse?.courseId === courseId) {
+            setSelectedCourse(null);
+            setSelectedLesson(null);
+            setCourseLessons([]);
+          }
+          await fetchCourses();
+          await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+        } catch (err: any) {
+          alert(err.message || "Failed to delete course.");
+        }
+      },
+      "Move to Trash"
+    );
+  };
+
+  const confirmSoftDeleteLesson = (courseId: string, lessonId: string) => {
+    triggerConfirm(
+      "Move Lesson to Recycle Bin",
+      "Are you sure you want to delete this lesson? It will be moved to the recycle bin (soft delete).",
+      async () => {
+        try {
+          await softDeleteLesson(courseId, lessonId);
+          await loadCourseLessons(courseId);
+          await fetchCourses();
+        } catch (err: any) {
+          alert(err.message || "Failed to delete lesson.");
+        }
+      },
+      "Move to Trash"
+    );
+  };
+
   const handleRoleChange = (userId: string, newRole: string) => {
     triggerConfirm(
       "Change User Clearance",
@@ -585,6 +725,56 @@ function DashboardPageContent() {
     );
   };
 
+  const handleCreateEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmployeeFormError("");
+    setEmployeeFormSuccess("");
+
+    if (!employeeEmail.trim() || !employeeName.trim() || !employeePassword.trim()) {
+      setEmployeeFormError("Name, email, and password are required.");
+      return;
+    }
+
+    setIsCreatingEmployee(true);
+    try {
+      await createEmployee({
+        email: employeeEmail,
+        name: employeeName,
+        password: employeePassword,
+        phoneNumber: employeePhone || undefined,
+        address: employeeAddress || undefined,
+        role: employeeRole,
+      });
+
+      setEmployeeFormSuccess("Employee registered successfully!");
+      setEmployeeEmail("");
+      setEmployeeName("");
+      setEmployeePassword("");
+      setEmployeePhone("");
+      setEmployeeAddress("");
+      setEmployeeRole("employee");
+      setShowEmployeePassword(false);
+
+      // Refresh users list
+      if (userSearchQuery) {
+        loadUsers(userSearchQuery);
+      } else {
+        loadPaginatedUsers(usersPage);
+      }
+
+      // Close modal after brief timeout to show success state
+      setTimeout(() => {
+        setIsCreateEmployeeModalOpen(false);
+        setEmployeeFormSuccess("");
+      }, 1500);
+
+    } catch (err: any) {
+      setEmployeeFormError(err.message || "Failed to register employee.");
+    } finally {
+      setIsCreatingEmployee(false);
+    }
+  };
+
   // =========================================================================
   // VIEW RENDERERS
   // =========================================================================
@@ -593,12 +783,13 @@ function DashboardPageContent() {
   const loadCourseLessons = async (courseId: string, autoSelectFirst = false) => {
     try {
       const res = await api.get(`/courses/${courseId}/lessons`);
-      const lessons: Lesson[] = res.data || [];
-      setCourseLessons(lessons);
-      if (autoSelectFirst && lessons.length > 0) {
-        setSelectedLesson(lessons[0]);
+      const allLessons: Lesson[] = res.data || [];
+      const activeLessons = allLessons.filter((l) => !l.deletedAt);
+      setCourseLessons(activeLessons);
+      if (autoSelectFirst && activeLessons.length > 0) {
+        setSelectedLesson(activeLessons[0]);
       }
-      return lessons;
+      return activeLessons;
     } catch (err) {
       console.error(err);
       return [];
@@ -910,10 +1101,10 @@ function DashboardPageContent() {
                   const isCur = selectedLesson?.lessonId === l.lessonId;
                   const isComp = isCompleted(l);
                   return (
-                    <button
+                    <div
                       key={l.lessonId}
                       onClick={() => setSelectedLesson(l)}
-                      className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border ${
+                      className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border cursor-pointer ${
                         isCur
                           ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/40 dark:text-blue-400"
                           : "hover:bg-slate-50 border-transparent dark:hover:bg-zinc-800/40"
@@ -935,7 +1126,7 @@ function DashboardPageContent() {
                         <p className="text-xs font-bold text-slate-900 truncate dark:text-zinc-100">{l.title}</p>
                         <p className="text-[9px] text-slate-400 font-mono mt-0.5">{l.lessonId}</p>
                         
-                        <div className="flex items-center gap-1.5 mt-1.5">
+                        <div className="flex items-center gap-1.5 mt-1.5 justify-between">
                           {isComp ? (
                             <span className="flex items-center gap-0.5 text-[9px] text-green-600 font-bold dark:text-green-400">
                               <Check size={10} /> Completed
@@ -943,9 +1134,21 @@ function DashboardPageContent() {
                           ) : (
                             <span className="text-[9px] text-slate-400">Not Completed</span>
                           )}
+                          {isAdminOrEmployee && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                confirmSoftDeleteLesson(selectedCourse.courseId, l.lessonId);
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 transition rounded hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                              title="Move lesson to Recycle Bin"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
@@ -1248,7 +1451,7 @@ function DashboardPageContent() {
       return renderYouTubePlayerView();
     }
 
-    if (isCoursesLoading || isCoursesPaginatedLoading) return <LoadingSpinner />;
+    if (isCoursesLoading) return <LoadingSpinner />;
 
     const pageSize = courseViewMode === "card" ? 6 : 10;
     const coursesTotalItems = managedCourses.length;
@@ -1275,6 +1478,32 @@ function DashboardPageContent() {
           </button>
         </div>
 
+        {recentlyViewed.length > 0 && (
+          <div className="animate-fadeIn">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-3 flex items-center gap-1.5">
+              <Activity size={12} className="text-blue-500" /> Recently Viewed
+            </h3>
+            <div className="flex gap-4 overflow-x-auto pb-3 pt-0.5 scrollbar-thin select-none">
+              {recentlyViewed.map((c) => (
+                <div
+                  key={c.courseId}
+                  onClick={async () => {
+                    setSelectedCourse(c);
+                    await loadCourseLessons(c.courseId, true);
+                  }}
+                  className="w-64 shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow-md transition cursor-pointer dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between"
+                >
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-200 line-clamp-1">{c.name}</h4>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">{c.courseId}</p>
+                  </div>
+                  <span className="text-[11px] text-blue-600 dark:text-blue-400 font-bold mt-4 block">Manage Course →</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Filter / View switcher bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm">
           <div className="flex flex-1 flex-col sm:flex-row items-center gap-3 max-w-2xl">
@@ -1293,8 +1522,23 @@ function DashboardPageContent() {
                     }
                   }}
                   placeholder="Search managed courses by name or ID..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-8 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 transition-shadow focus:ring-1 focus:ring-blue-500/30"
                 />
+                {/* Live search indicator: spinner when loading, clear button when there's text */}
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                  {isCoursesPaginatedLoading && courseSearchQuery ? (
+                    <span className="h-3 w-3 rounded-full border border-blue-500 border-t-transparent animate-spin" />
+                  ) : courseSearchQuery ? (
+                    <button
+                      type="button"
+                      onClick={() => { setCourseSearchQuery(""); }}
+                      className="text-slate-350 hover:text-slate-600 dark:hover:text-zinc-300 transition text-sm leading-none"
+                      aria-label="Clear search"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </span>
               </div>
               <button
                 onClick={() => {
@@ -1332,7 +1576,7 @@ function DashboardPageContent() {
 
           <div className="flex flex-wrap items-center gap-4">
             {/* Status Toggle Tab Selector */}
-            <div className="flex rounded-xl bg-slate-50 p-1 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
+            <div className="flex rounded-xl bg-slate-50 p-1 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 overflow-x-auto scrollbar-none max-w-full">
               {["all", "active", "draft", "inactive"].map((statusOption) => {
                 const isActive = courseFilterStatus === statusOption;
                 let activeStyle = "";
@@ -1352,7 +1596,7 @@ function DashboardPageContent() {
                       setCoursesPage(1);
                       loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, statusOption);
                     }}
-                    className={`rounded-lg px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition ${activeStyle}`}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition shrink-0 ${activeStyle}`}
                   >
                     {statusOption}
                   </button>
@@ -1386,8 +1630,18 @@ function DashboardPageContent() {
           </div>
         </div>
 
-        {/* Courses list/grid content */}
-        {coursesToRender.length === 0 ? (
+        {/* Courses list/grid content — wrapped with inline loading overlay */}
+        <div className="relative">
+          {/* Subtle inline overlay during search/filter refresh — does NOT hide the layout */}
+          {isCoursesPaginatedLoading && (
+            <div className="absolute inset-0 z-10 flex items-start justify-center pt-10 rounded-2xl bg-white/60 dark:bg-zinc-950/60 backdrop-blur-[2px] pointer-events-none">
+              <div className="flex items-center gap-2 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 shadow-sm px-4 py-2">
+                <span className="h-3.5 w-3.5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Searching...</span>
+              </div>
+            </div>
+          )}
+          {coursesToRender.length === 0 && !isCoursesPaginatedLoading ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 dark:bg-[#121212] dark:border-zinc-800">
             <p className="text-sm text-slate-400">No managed courses found.</p>
           </div>
@@ -1437,23 +1691,32 @@ function DashboardPageContent() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={async () => {
-                      try {
-                        setActionLoading(true);
-                        const res = await api.get(`/courses/${c.courseId}`);
-                        setSelectedCourse(res.data);
-                        await loadCourseLessons(c.courseId, true);
-                      } catch (err: any) {
-                        alert(err.message);
-                      } finally {
-                        setActionLoading(false);
-                      }
-                    }}
-                    className="flex items-center gap-0.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                  >
-                    Manage Details →
-                  </button>
+                  <div className="flex gap-2 items-center">
+                    <button
+                      onClick={() => confirmSoftDeleteCourse(c.courseId)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                      title="Move to Recycle Bin"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          setActionLoading(true);
+                          const res = await api.get(`/courses/${c.courseId}`);
+                          setSelectedCourse(res.data);
+                          await loadCourseLessons(c.courseId, true);
+                        } catch (err: any) {
+                          alert(err.message);
+                        } finally {
+                          setActionLoading(false);
+                        }
+                      }}
+                      className="flex items-center gap-0.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    >
+                      Manage Details →
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1504,23 +1767,32 @@ function DashboardPageContent() {
                         </select>
                       </td>
                       <td className="py-2.5 px-4 text-right">
-                        <button
-                          onClick={async () => {
-                            try {
-                              setActionLoading(true);
-                              const res = await api.get(`/courses/${c.courseId}`);
-                              setSelectedCourse(res.data);
-                              await loadCourseLessons(c.courseId, true);
-                            } catch (err: any) {
-                              alert(err.message);
-                            } finally {
-                              setActionLoading(false);
-                            }
-                          }}
-                          className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                        >
-                          Manage Details →
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => confirmSoftDeleteCourse(c.courseId)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                            title="Move to Recycle Bin"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                setActionLoading(true);
+                                const res = await api.get(`/courses/${c.courseId}`);
+                                setSelectedCourse(res.data);
+                                await loadCourseLessons(c.courseId, true);
+                              } catch (err: any) {
+                                alert(err.message);
+                              } finally {
+                                setActionLoading(false);
+                              }
+                            }}
+                            className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                          >
+                            Manage Details →
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1529,6 +1801,7 @@ function DashboardPageContent() {
             </div>
           </div>
         )}
+        </div>{/* end relative wrapper */}
 
         {/* Course Pagination Controls */}
         {coursesTotalPages > 1 && (
@@ -1555,81 +1828,7 @@ function DashboardPageContent() {
           </div>
         )}
 
-        {/* Create Course Modal overlay */}
-        {isCreateCourseModalOpen && (
-          <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleUp">
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
-                <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50 flex items-center gap-2">
-                  <PlusCircle size={18} className="text-blue-600" /> Create Professional Course
-                </h3>
-                <button
-                  onClick={() => setIsCreateCourseModalOpen(false)}
-                  className="rounded-lg p-1 text-slate-455 hover:bg-slate-50 dark:hover:bg-zinc-850 transition"
-                >
-                  <span className="text-xl font-bold">×</span>
-                </button>
-              </div>
 
-              {courseFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{courseFormError}</div>}
-              {courseFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{courseFormSuccess}</div>}
-
-              <form
-                onSubmit={handleCreateCourse}
-                className="flex flex-col gap-4"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-500">Course Name</label>
-                  <input
-                    type="text" value={newCourseName} onChange={(e) => setNewCourseName(e.target.value)}
-                    placeholder="e.g. Next.js Enterprise Scaling"
-                    className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-500">Category Tag</label>
-                  <select
-                    value={newCourseCategory} onChange={(e) => setNewCourseCategory(Number(e.target.value))}
-                    className="rounded-xl border border-slate-200 bg-white p-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                  >
-                    {categoriesList.map((cat) => (
-                      <option key={cat.categoryId} value={cat.categoryId}>
-                        {cat.categoryName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-500">Publication Status</label>
-                  <select
-                    value={newCourseStatus} onChange={(e) => setNewCourseStatus(e.target.value)}
-                    className="rounded-xl border border-slate-200 bg-white p-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900"
-                  >
-                    <option value="draft">Draft mode (Hidden)</option>
-                    <option value="active">Active (Deploy to Catalog)</option>
-                  </select>
-                </div>
-                <div className="flex justify-end gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreateCourseModalOpen(false)}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-705 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit" disabled={actionLoading}
-                    className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition disabled:opacity-50"
-                  >
-                    Create Course
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
       </div>
     );
   };
@@ -1660,6 +1859,16 @@ function DashboardPageContent() {
               className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
             >
               Search
+            </button>
+            <button
+              onClick={() => {
+                setEmployeeFormError("");
+                setEmployeeFormSuccess("");
+                setIsCreateEmployeeModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition shrink-0"
+            >
+              <PlusCircle size={16} /> Add Employee
             </button>
           </div>
 
@@ -1773,6 +1982,32 @@ function DashboardPageContent() {
           <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">My Courses</h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Track progress and resume your active training modules.</p>
         </div>
+
+        {recentlyViewed.length > 0 && (
+          <div className="animate-fadeIn">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-3 flex items-center gap-1.5">
+              <Activity size={12} className="text-blue-500" /> Recently Viewed
+            </h3>
+            <div className="flex gap-4 overflow-x-auto pb-3 pt-0.5 scrollbar-thin select-none">
+              {recentlyViewed.map((c) => (
+                <div
+                  key={c.courseId}
+                  onClick={async () => {
+                    setSelectedCourse(c);
+                    await loadCourseLessons(c.courseId, true);
+                  }}
+                  className="w-64 shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow-md transition cursor-pointer dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between"
+                >
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-200 line-clamp-1">{c.name}</h4>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">{c.courseId}</p>
+                  </div>
+                  <span className="text-[11px] text-blue-600 dark:text-blue-400 font-bold mt-4 block">Resume Course →</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {enrolledCoursesList.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#121212]">
@@ -2180,6 +2415,273 @@ function DashboardPageContent() {
   };
 
   // SYSTEM SETTINGS VIEW
+  const renderRecycleBin = () => {
+
+
+
+    const confirmRestoreCourse = (courseId: string) => {
+      triggerConfirm(
+        "Restore Course",
+        "Restore this course from the recycle bin?",
+        async () => {
+          await restoreCourse(courseId);
+          await loadTrash();
+          await fetchCourses();
+          await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+        },
+        "Restore"
+      );
+    };
+
+    const confirmRestoreLesson = (courseId: string, lessonId: string) => {
+      triggerConfirm(
+        "Restore Lesson",
+        "Restore this lesson from the recycle bin?",
+        async () => {
+          await restoreLesson(courseId, lessonId);
+          await loadTrash();
+          await fetchCourses();
+          await loadCourseLessons(courseId);
+        },
+        "Restore"
+      );
+    };
+
+    const confirmHardDeleteCourse = (courseId: string) => {
+      triggerConfirm(
+        "Permanently Delete Course",
+        "This will permanently remove the course from the database. This cannot be undone.",
+        async () => {
+          await hardDeleteCourse(courseId);
+          await loadTrash();
+          await fetchCourses();
+          await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+        },
+        "Delete Permanently"
+      );
+    };
+
+    const confirmHardDeleteLesson = (courseId: string, lessonId: string) => {
+      triggerConfirm(
+        "Permanently Delete Lesson",
+        "This will permanently remove the lesson from the database. This cannot be undone.",
+        async () => {
+          await hardDeleteLesson(courseId, lessonId);
+          await loadTrash();
+          await fetchCourses();
+          await loadCourseLessons(courseId);
+        },
+        "Delete Permanently"
+      );
+    };
+
+    const confirmEmptyTrash = () => {
+      triggerConfirm(
+        "Empty Recycle Bin",
+        "This will permanently delete ALL items currently in the recycle bin. This cannot be undone.",
+        async () => {
+          await emptyTrash();
+          await loadTrash();
+        },
+        "Empty Bin"
+      );
+    };
+
+    const formatTrashItem = (item: any) => {
+      const type = item?.type ?? item?.itemType ?? item?.entityType;
+      if (type === "lesson") {
+        return {
+          type: "lesson" as const,
+          courseId: item.courseId,
+          lessonId: item.lessonId ?? item.id,
+          title: item.name ?? item.lessonTitle ?? item.title,
+          materialType: item.materialType,
+          deletedAt: item.deletedAt ?? item.deleted_at,
+        };
+      }
+      return {
+        type: "course" as const,
+        courseId: item.courseId ?? item.id,
+        title: item.name ?? item.courseName ?? item.title,
+        deletedAt: item.deletedAt ?? item.deleted_at,
+      };
+    };
+
+    return (
+      <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">Recycle Bin</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Soft-deleted courses and lessons. Restore or permanently delete.</p>
+          </div>
+          <button
+            onClick={confirmEmptyTrash}
+            className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
+            disabled={isLoadingTrash || trashItems.length === 0}
+          >
+            Empty Recycle Bin
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-zinc-800 dark:bg-[#121212] shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center gap-3 justify-between">
+            <div className="flex-1 flex gap-2 items-center">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={trashQuery}
+                  onChange={(e) => setTrashQuery(e.target.value)}
+                  placeholder="Search in trash by course/lesson ID or title..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                />
+              </div>
+              <button
+                onClick={loadTrash}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition shrink-0"
+                disabled={isLoadingTrash}
+              >
+                Search
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={trashType}
+                onChange={(e) => setTrashType(e.target.value as any)}
+                className="rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+              >
+                <option value="all">All</option>
+                <option value="course">Courses</option>
+                <option value="lesson">Lessons</option>
+              </select>
+
+              <select
+                value={trashSortOrder}
+                onChange={(e) => setTrashSortOrder(e.target.value as any)}
+                className="rounded-xl border border-slate-200 bg-white p-2 text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+              >
+                <option value="DESC">Newest</option>
+                <option value="ASC">Oldest</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {isLoadingTrash ? (
+          <LoadingSpinner />
+        ) : trashItems.length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 dark:bg-[#121212] dark:border-zinc-800">
+            <p className="text-sm text-slate-400">Trash is empty.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-[#121212] shadow-sm">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30 font-bold text-xs uppercase">
+                  <th className="py-2.5 px-4">Type</th>
+                  <th className="py-2.5 px-4">Details</th>
+                  <th className="py-2.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trashItems.map((raw, idx) => {
+                  const item = formatTrashItem(raw);
+                  const key = item.type === "lesson" ? `${item.courseId}-${item.lessonId}` : `${item.courseId}`;
+
+                  return (
+                    <tr key={key} className="border-b border-slate-100 hover:bg-slate-50/50 dark:border-zinc-800 dark:hover:bg-zinc-800/10">
+                      <td className="py-3 px-4">
+                        <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          item.type === "course" ? "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30" : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-300 dark:border-amber-900/30"
+                        }`}>
+                          {item.type}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-900 dark:text-zinc-100">{item.title ?? "—"}</span>
+                          <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5">
+                            {item.type === "course" ? `CID: ${item.courseId}` : `CID: ${item.courseId} · LES: ${item.lessonId}`}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={async () => {
+                              if (item.type === "course") {
+                                try {
+                                  setActionLoading(true);
+                                  const res = await api.get(`/courses/${item.courseId}`);
+                                  setSelectedCourse(res.data);
+                                  await loadCourseLessons(item.courseId, true);
+                                  router.push(`/dashboard?tab=manage-courses`);
+                                } finally {
+                                  setActionLoading(false);
+                                }
+                              } else {
+                                // Lesson details: open deleted lesson modal
+                                try {
+                                  setActionLoading(true);
+                                  const lessonRes = await api.get(`/courses/${item.courseId}/lessons/${item.lessonId}`);
+                                  setDeletedLessonDetails(lessonRes.data);
+                                } catch (e: any) {
+                                  alert(e?.response?.data?.message || "Failed to fetch deleted lesson details.");
+                                } finally {
+                                  setActionLoading(false);
+                                }
+                              }
+                            }}
+                            className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                          >
+                            View Details
+                          </button>
+
+                          {item.type === "course" ? (
+                            <>
+                              <button
+                                onClick={() => confirmRestoreCourse(item.courseId)}
+                                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1 transition"
+                              >
+                                Restore
+                              </button>
+                              <button
+                                onClick={() => confirmHardDeleteCourse(item.courseId)}
+                                className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1 transition"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => confirmRestoreLesson(item.courseId, item.lessonId)}
+                                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1 transition"
+                              >
+                                Restore
+                              </button>
+                              <button
+                                onClick={() => confirmHardDeleteLesson(item.courseId, item.lessonId)}
+                                className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1 transition"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderSettings = () => {
     return (
       <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
@@ -2219,6 +2721,7 @@ function DashboardPageContent() {
     ? [
         { key: "overview", label: "Overview" },
         { key: "manage-courses", label: "Manage Courses" },
+        { key: "trash", label: "Recycle Bin" },
         { key: "users", label: "Users" },
         { key: "settings", label: "Settings" },
       ]
@@ -2246,6 +2749,8 @@ function DashboardPageContent() {
           return renderAdminOverview();
         case "manage-courses":
           return renderManageCourses();
+        case "trash":
+          return renderRecycleBin();
         case "users":
           return isAdmin ? renderUserManagement() : renderAdminOverview();
         case "settings":
@@ -2339,6 +2844,291 @@ function DashboardPageContent() {
       >
         {renderViewContent()}
       </div>
+
+      {/* Deleted Lesson Details Modal */}
+      {deletedLessonDetails && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleUp">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50 flex items-center gap-2">
+                <FileText size={18} className="text-amber-600" /> Deleted Lesson Details
+              </h3>
+              <button
+                onClick={() => setDeletedLessonDetails(null)}
+                className="rounded-lg p-1 text-slate-450 hover:bg-slate-50 dark:hover:bg-zinc-800 transition"
+              >
+                <span className="text-xl font-bold">×</span>
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Lesson Title</label>
+                <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">{deletedLessonDetails.title}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Lesson ID</label>
+                  <p className="text-xs font-mono text-slate-600 dark:text-zinc-400">{deletedLessonDetails.lessonId}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Status</label>
+                  <span className="inline-block rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700">
+                    {deletedLessonDetails.status}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Material Details</label>
+                <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">{deletedLessonDetails.materialType}</p>
+                <a href={deletedLessonDetails.materialLink} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline break-all mt-1 inline-block">
+                  {deletedLessonDetails.materialLink}
+                </a>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Description</label>
+                <p className="text-xs text-slate-600 dark:text-zinc-400 max-h-24 overflow-y-auto whitespace-pre-wrap">{deletedLessonDetails.description || "No description provided."}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Deleted At</label>
+                  <p className="text-xs font-mono text-rose-600 dark:text-rose-400">
+                    {deletedLessonDetails.deletedAt ? new Date(deletedLessonDetails.deletedAt).toLocaleString() : "Unknown"}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Created At</label>
+                  <p className="text-xs font-mono text-slate-500 dark:text-zinc-500">
+                    {deletedLessonDetails.createdAt ? new Date(deletedLessonDetails.createdAt).toLocaleString() : "Unknown"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setDeletedLessonDetails(null)}
+                className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              >
+                Close Window
+              </button>
+              <button
+                onClick={() => {
+                  const { courseId, lessonId } = deletedLessonDetails;
+                  triggerConfirm(
+                    "Restore Lesson",
+                    "Restore this lesson from the recycle bin?",
+                    async () => {
+                      await restoreLesson(courseId, lessonId);
+                      setDeletedLessonDetails(null);
+                      await loadTrash();
+                      await fetchCourses();
+                      if (selectedCourse?.courseId === courseId) {
+                        await loadCourseLessons(courseId);
+                      }
+                    },
+                    "Restore"
+                  );
+                }}
+                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 flex items-center gap-1.5 transition"
+              >
+                <RotateCcw size={13} /> Restore Lesson
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Course Modal overlay */}
+      {isCreateCourseModalOpen && (
+        <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleUp">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50 flex items-center gap-2">
+                <PlusCircle size={18} className="text-blue-600" /> Create Professional Course
+              </h3>
+              <button
+                onClick={() => setIsCreateCourseModalOpen(false)}
+                className="rounded-lg p-1 text-slate-455 hover:bg-slate-50 dark:hover:bg-zinc-850 transition"
+              >
+                <span className="text-xl font-bold">×</span>
+              </button>
+            </div>
+
+            {courseFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{courseFormError}</div>}
+            {courseFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{courseFormSuccess}</div>}
+
+            <form
+              onSubmit={handleCreateCourse}
+              className="flex flex-col gap-4"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Course Name</label>
+                <input
+                  type="text" value={newCourseName} onChange={(e) => setNewCourseName(e.target.value)}
+                  placeholder="e.g. Next.js Enterprise Scaling"
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Category Tag</label>
+                <select
+                  value={newCourseCategory} onChange={(e) => setNewCourseCategory(Number(e.target.value))}
+                  className="rounded-xl border border-slate-200 bg-white p-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                >
+                  {categoriesList.map((cat) => (
+                    <option key={cat.categoryId} value={cat.categoryId}>
+                      {cat.categoryName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Publication Status</label>
+                <select
+                  value={newCourseStatus} onChange={(e) => setNewCourseStatus(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white p-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <option value="draft">Draft mode (Hidden)</option>
+                  <option value="active">Active (Deploy to Catalog)</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateCourseModalOpen(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-705 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit" disabled={actionLoading}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  Create Course
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Employee Modal overlay */}
+      {isCreateEmployeeModalOpen && (
+        <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleUp">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50 flex items-center gap-2">
+                <PlusCircle size={18} className="text-emerald-600" /> Add Employee User
+              </h3>
+              <button
+                onClick={() => setIsCreateEmployeeModalOpen(false)}
+                className="rounded-lg p-1 text-slate-455 hover:bg-slate-50 dark:hover:bg-zinc-850 transition"
+              >
+                <span className="text-xl font-bold">×</span>
+              </button>
+            </div>
+
+            {employeeFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{employeeFormError}</div>}
+            {employeeFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{employeeFormSuccess}</div>}
+
+            <form
+              onSubmit={handleCreateEmployee}
+              className="flex flex-col gap-4"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Full Name</label>
+                <input
+                  type="text" value={employeeName} onChange={(e) => setEmployeeName(e.target.value)}
+                  placeholder="e.g. Jane Developer" required
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-800"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Email Address</label>
+                <input
+                  type="email" value={employeeEmail} onChange={(e) => setEmployeeEmail(e.target.value)}
+                  placeholder="e.g. new.staff@example.com" required
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-800"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Password</label>
+                <div className="relative">
+                  <input
+                    type={showEmployeePassword ? "text" : "password"} value={employeePassword} onChange={(e) => setEmployeePassword(e.target.value)}
+                    placeholder="e.g. supersecurepassword123" required
+                    className="w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 pr-11 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEmployeePassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition"
+                    tabIndex={-1}
+                    aria-label={showEmployeePassword ? "Hide password" : "Show password"}
+                  >
+                    {showEmployeePassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Role</label>
+                <select
+                  value={employeeRole}
+                  onChange={(e) => setEmployeeRole(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+                >
+                  <option value="employee">Employee</option>
+                  <option value="admin">Admin</option>
+                  <option value="user">User</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Phone Number (Optional)</label>
+                <input
+                  type="text" value={employeePhone} onChange={(e) => setEmployeePhone(e.target.value)}
+                  placeholder="e.g. 555-0101"
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-800"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Office Address (Optional)</label>
+                <input
+                  type="text" value={employeeAddress} onChange={(e) => setEmployeeAddress(e.target.value)}
+                  placeholder="e.g. Redmond Office HQ"
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none dark:border-zinc-800"
+                />
+              </div>
+              <div className="flex justify-end gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateEmployeeModalOpen(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-705 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit" disabled={isCreatingEmployee}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isCreatingEmployee ? (
+                    <>
+                      <div className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Employee"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         isOpen={modalState.isOpen}

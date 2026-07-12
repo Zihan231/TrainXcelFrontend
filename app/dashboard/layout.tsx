@@ -27,10 +27,13 @@ import {
   MapPin,
   Mail,
   User as UserIcon,
+  Trash2,
+  Menu,
+  X,
 } from "lucide-react";
 
 // Sidebar content that uses search params
-function SidebarContent() {
+function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onClose?: () => void }) {
   const { logout } = useAuth();
   const { name, email, role } = useUser();
   const searchParams = useSearchParams();
@@ -41,32 +44,42 @@ function SidebarContent() {
   const isAdmin = role === "admin";
 
   return (
-    <aside className="hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-6 dark:border-zinc-800 dark:bg-[#121212] lg:flex">
+    <aside className={`flex flex-col bg-white px-4 py-6 dark:bg-[#121212] ${isMobile ? "w-full h-full" : "hidden lg:flex w-64 border-r border-slate-200 dark:border-zinc-800"}`}>
       {/* Brand */}
-      <div className="mb-10 flex items-center gap-3 px-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5"
+      <div className="mb-10 flex items-center justify-between px-2">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+              <path d="M6 12v5c3 3 9 3 12 0v-5" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-lg font-bold leading-tight text-slate-900 dark:text-zinc-50">
+              TrainXcel
+            </h1>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+              Enterprise LMS
+            </p>
+          </div>
+        </div>
+        {isMobile && onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
-            <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-            <path d="M6 12v5c3 3 9 3 12 0v-5" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-lg font-bold leading-tight text-slate-900 dark:text-zinc-50">
-            TrainXcel
-          </h1>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-            Enterprise LMS
-          </p>
-        </div>
+            <X size={18} />
+          </button>
+        )}
       </div>
 
       {/* Main Navigation */}
@@ -78,12 +91,14 @@ function SidebarContent() {
               label="Overview"
               href="/dashboard?tab=overview"
               active={currentTab === "overview"}
+              onClick={onClose}
             />
             <NavItem
               icon={<PlusCircle size={18} />}
               label="Manage Courses"
               href="/dashboard?tab=manage-courses"
               active={currentTab === "manage-courses"}
+              onClick={onClose}
             />
             {isAdmin && (
               <NavItem
@@ -91,6 +106,7 @@ function SidebarContent() {
                 label="User Management"
                 href="/dashboard?tab=users"
                 active={currentTab === "users"}
+                onClick={onClose}
               />
             )}
           </>
@@ -101,24 +117,28 @@ function SidebarContent() {
               label="My Learning"
               href="/dashboard?tab=my-learning"
               active={currentTab === "my-learning" || currentTab === "overview"}
+              onClick={onClose}
             />
             <NavItem
               icon={<Library size={18} />}
               label="Course Catalog"
               href="/dashboard?tab=catalog"
               active={currentTab === "catalog"}
+              onClick={onClose}
             />
             <NavItem
               icon={<BarChart3 size={18} />}
               label="My Progress"
               href="/dashboard?tab=progress"
               active={currentTab === "progress"}
+              onClick={onClose}
             />
             <NavItem
               icon={<Award size={18} />}
               label="Certificates"
               href="/dashboard?tab=certificates"
               active={currentTab === "certificates"}
+              onClick={onClose}
             />
           </>
         )}
@@ -129,14 +149,27 @@ function SidebarContent() {
         SYSTEM
       </div>
       <nav className="flex flex-col gap-1">
+        {isAdminOrEmployee && (
+          <NavItem
+            icon={<Trash2 size={18} />}
+            label="Recycle Bin"
+            href="/dashboard?tab=trash"
+            active={currentTab === "trash"}
+            onClick={onClose}
+          />
+        )}
         <NavItem
           icon={<Settings size={18} />}
           label="Settings"
           href="/dashboard?tab=settings"
           active={currentTab === "settings"}
+          onClick={onClose}
         />
         <button
-          onClick={logout}
+          onClick={() => {
+            onClose?.();
+            logout();
+          }}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/30"
         >
           <LogOut size={18} />
@@ -159,6 +192,7 @@ export default function DashboardLayout({
   // Dropdown & Modal States
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   // Form Fields
   const [nameInput, setNameInput] = useState("");
@@ -221,7 +255,13 @@ export default function DashboardLayout({
           {/* Top Header */}
           <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/80 px-8 backdrop-blur-sm dark:border-zinc-800 dark:bg-[#121212]/80 relative z-30">
             {/* Spacer to push actions to the right */}
-            <div />
+            <button
+              onClick={() => setIsMobileOpen(true)}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800 lg:hidden"
+              title="Open menu"
+            >
+              <Menu size={20} />
+            </button>
 
             {/* Right Actions */}
             <div className="flex items-center gap-5">
@@ -296,6 +336,27 @@ export default function DashboardLayout({
           </div>
         </main>
       </div>
+
+      {/* Mobile Sidebar Drawer Overlay */}
+      {isMobileOpen && (
+        <div className="fixed inset-0 z-50 flex lg:hidden">
+          {/* Backdrop overlay */}
+          <div
+            className="fixed inset-0 bg-black/55 backdrop-blur-xs transition-opacity animate-fadeIn"
+            onClick={() => setIsMobileOpen(false)}
+          />
+          {/* Sidebar drawer content container */}
+          <div className="relative flex w-64 max-w-xs flex-col bg-white dark:bg-[#121212] animate-slideIn">
+            <Suspense fallback={
+              <aside className="w-full flex h-full flex-col bg-white px-4 py-6 dark:bg-[#121212]">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+              </aside>
+            }>
+              <SidebarContent isMobile={true} onClose={() => setIsMobileOpen(false)} />
+            </Suspense>
+          </div>
+        </div>
+      )}
 
       {/* Edit Profile Modal */}
       {isEditModalOpen && (
@@ -384,16 +445,19 @@ function NavItem({
   href,
   active = false,
   className = "",
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   href: string;
   active?: boolean;
   className?: string;
+  onClick?: () => void;
 }) {
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
         active
           ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"

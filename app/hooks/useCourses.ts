@@ -20,6 +20,7 @@ export interface Lesson {
   materialType: string;
   materialLink: string;
   status: string;
+  deletedAt?: string;
 }
 
 export interface Course {
@@ -183,6 +184,116 @@ export function useCourses() {
 
   }, []);
 
+  const softDeleteCourse = useCallback(async (courseId: string) => {
+    try {
+      const res = await api.delete(`/courses/${courseId}`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to delete course.");
+    }
+  }, []);
+
+  const softDeleteLesson = useCallback(async (courseId: string, lessonId: string) => {
+    try {
+      const res = await api.delete(`/courses/${courseId}/lessons/${lessonId}`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to delete lesson.");
+    }
+  }, []);
+
+  const fetchTrash = useCallback(
+    async (params: {
+      q?: string;
+      type?: "course" | "lesson" | "all";
+      sortOrder?: "ASC" | "DESC";
+    } = {}) => {
+      try {
+        const { q = "", type = "all", sortOrder = "DESC" } = params;
+        const query = new URLSearchParams();
+        if (q) query.set("q", q);
+        if (type && type !== "all") query.set("type", type);
+        if (sortOrder) query.set("sortOrder", sortOrder);
+
+        const res = await api.get(`/courses/trash${query.toString() ? `?${query.toString()}` : ""}`);
+        return res.data;
+      } catch (err) {
+        const message = (err as ApiErrorShape)?.response?.data?.message;
+        throw new Error(message || "Failed to fetch recycle bin items.");
+      }
+    },
+    []
+  );
+
+  const restoreCourse = useCallback(async (courseId: string) => {
+    try {
+      const res = await api.patch(`/courses/${courseId}/restore`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to restore course.");
+    }
+  }, []);
+
+  const restoreLesson = useCallback(async (courseId: string, lessonId: string) => {
+    try {
+      const res = await api.patch(`/courses/${courseId}/lessons/${lessonId}/restore`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to restore lesson.");
+    }
+  }, []);
+
+  const hardDeleteCourse = useCallback(async (courseId: string) => {
+    try {
+      const res = await api.delete(`/courses/${courseId}/permanent`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to permanently delete course.");
+    }
+  }, []);
+
+  const hardDeleteLesson = useCallback(async (courseId: string, lessonId: string) => {
+    try {
+      const res = await api.delete(`/courses/${courseId}/lessons/${lessonId}/permanent`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to permanently delete lesson.");
+    }
+  }, []);
+
+  const emptyTrash = useCallback(async () => {
+    try {
+      const res = await api.delete(`/courses/trash/empty`);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to empty recycle bin.");
+    }
+  }, []);
+
+  const createEmployee = useCallback(async (employeeData: {
+    email: string;
+    name: string;
+    password?: string;
+    phoneNumber?: string;
+    address?: string;
+    role?: string;
+  }) => {
+    try {
+      const response = await api.post("/auth/users/employee", employeeData);
+      return response.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to create employee.");
+    }
+  }, []);
+
   return {
     courses,
     isLoading,
@@ -197,5 +308,14 @@ export function useCourses() {
     updateProfile,
     fetchCoursesPaginated,
     fetchUsersPaginated,
+    softDeleteCourse,
+    softDeleteLesson,
+    fetchTrash,
+    restoreCourse,
+    restoreLesson,
+    hardDeleteCourse,
+    hardDeleteLesson,
+    emptyTrash,
+    createEmployee,
   };
 }
