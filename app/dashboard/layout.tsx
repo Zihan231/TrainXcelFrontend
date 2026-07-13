@@ -23,6 +23,7 @@ import {
   Settings,
   LogOut,
   Users,
+  CheckSquare,
   PlusCircle,
   Phone,
   MapPin,
@@ -110,6 +111,13 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
                 onClick={onClose}
               />
             )}
+            <NavItem
+              icon={<CheckSquare size={18} />}
+              label="Evaluations"
+              href="/dashboard?tab=evaluations"
+              active={currentTab === "evaluations"}
+              onClick={onClose}
+            />
           </>
         ) : (
           <>

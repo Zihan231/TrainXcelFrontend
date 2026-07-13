@@ -21,6 +21,7 @@ export interface Lesson {
   materialLink: string;
   status: string;
   deletedAt?: string;
+  tests?: { id: number }[];
 }
 
 export interface Course {
@@ -33,6 +34,7 @@ export interface Course {
   lessons?: Lesson[];
   categoryName?: string;
   totalLessons?: number;
+  progress?: number;
 }
 
 export interface UserProfile {
@@ -62,6 +64,16 @@ export function useCourses() {
 
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  const fetchMyLearning = useCallback(async (page: number = 1, limit: number = 6, status: string = 'all') => {
+    try {
+      const response = await api.get(`/courses/my-learning?page=${page}&limit=${limit}&status=${status}`);
+      return response.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to fetch my learning courses.");
     }
   }, []);
 
@@ -300,6 +312,7 @@ export function useCourses() {
     isLoading,
     error,
     fetchCourses,
+    fetchMyLearning,
     enrollInCourse,
     completeLesson,
     createCourse,

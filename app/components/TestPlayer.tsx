@@ -484,8 +484,8 @@ export function TestPlayer({
                 <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-1">{idx + 1}. {ans.question.questionText}</h5>
                 <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
                   <span>Max Marks: {ans.question.marks}</span>
-                  <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : "text-rose-600"}`}>
-                    Marks Awarded: {ans.marksAwarded ?? 0}
+                  <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : (isCQ && reviewSubmission.status === "Pending Evaluation" ? "text-amber-500" : "text-rose-600")}`}>
+                    Marks Awarded: {isCQ && reviewSubmission.status === "Pending Evaluation" ? "Pending" : (ans.marksAwarded ?? 0)}
                   </span>
                 </div>
                 {!isCQ ? (
@@ -548,12 +548,22 @@ export function TestPlayer({
                       <h4 className="font-semibold text-slate-800 dark:text-zinc-100">{test.title}</h4>
                       <p className="text-xs text-slate-500">{test.questions.length} questions</p>
                     </div>
-                    {hasTaken && <span className="text-[10px] font-bold uppercase tracking-wider text-green-600 bg-green-50 px-2.5 py-1 rounded-md dark:bg-green-950/20 dark:text-green-400">Submitted</span>}
+                    {hasTaken && (
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md ${
+                        submissions[test.id].status === "Pending Evaluation" 
+                          ? "text-amber-600 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400"
+                          : "text-green-600 bg-green-50 dark:bg-green-950/20 dark:text-green-400"
+                      }`}>
+                        {submissions[test.id].status === "Pending Evaluation" ? "Pending Eval" : "Submitted"}
+                      </span>
+                    )}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleStartTest(test)} className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-semibold transition">
-                      {hasTaken ? "Retake Test" : "Take Test"}
-                    </button>
+                    {(!hasTaken || !test.questions.some((q: any) => q.type === "CQ")) && (
+                      <button onClick={() => handleStartTest(test)} className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-semibold transition">
+                        {hasTaken ? "Retake Test" : "Take Test"}
+                      </button>
+                    )}
                     {hasTaken && (
                       <button onClick={() => setReviewSubmission(submissions[test.id])} className="flex-1 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
                         Review Answers

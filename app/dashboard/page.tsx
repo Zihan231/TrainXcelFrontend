@@ -12,7 +12,7 @@ import {
   AlertTriangle, Activity, Trophy, PlusCircle, CheckCircle,
   Play, FileText, ExternalLink, ShieldAlert, Award, Search,
   Check, BookOpenCheck, Settings, ArrowLeft, MonitorPlay, Sparkles, Filter,
-  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2
+  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2, ChevronLeft, ChevronRight
 } from "lucide-react";
 import {
   AreaChart, Area,
@@ -112,6 +112,7 @@ function DashboardPageContent() {
     courses: allCourses,
     isLoading: isCoursesLoading,
     fetchCourses,
+    fetchMyLearning,
     enrollInCourse,
     completeLesson,
     createCourse,
@@ -136,8 +137,46 @@ function DashboardPageContent() {
   const [completedLessonsMap, setCompletedLessonsMap] = useState<Record<string, string[]>>({}); // courseId -> lessonIds[]
   
   // Selected course management page simulation
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(() => {
+    if (typeof window !== "undefined") {
+      const stored = sessionStorage.getItem("trainxcel_selected_course");
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {}
+      }
+    }
+    return null;
+  });
+
+  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(() => {
+    if (typeof window !== "undefined") {
+      const stored = sessionStorage.getItem("trainxcel_selected_lesson");
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {}
+      }
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (selectedCourse) {
+      sessionStorage.setItem("trainxcel_selected_course", JSON.stringify(selectedCourse));
+    } else {
+      sessionStorage.removeItem("trainxcel_selected_course");
+    }
+  }, [selectedCourse]);
+
+  useEffect(() => {
+    if (selectedLesson) {
+      sessionStorage.setItem("trainxcel_selected_lesson", JSON.stringify(selectedLesson));
+    } else {
+      sessionStorage.removeItem("trainxcel_selected_lesson");
+    }
+  }, [selectedLesson]);
+
   const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
   const [lessonsLoading, setLessonsLoading] = useState(false);
   const [showTestPlayer, setShowTestPlayer] = useState(false);
@@ -325,6 +364,22 @@ function DashboardPageContent() {
     }
   }, [userId]);
 
+  const removeFromRecentlyViewed = useCallback((courseId: string) => {
+    if (!courseId) return;
+    const key = `recently_viewed_${userId || 'global'}`;
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        let list: Course[] = JSON.parse(stored);
+        list = list.filter(item => item.courseId !== courseId);
+        localStorage.setItem(key, JSON.stringify(list));
+        setRecentlyViewed(list);
+      }
+    } catch (e) {
+      console.error("Failed to remove recently viewed course", e);
+    }
+  }, [userId]);
+
   useEffect(() => {
     const key = `recently_viewed_${userId || 'global'}`;
     try {
@@ -354,40 +409,50 @@ function DashboardPageContent() {
     return () => clearTimeout(timer);
   }, [catalogSearch, fetchCourses]);
 
-  const [isProgressLoading, setIsProgressLoading] = useState(true);
+  const [myLearningFilter, setMyLearningFilter] = useState<"all" | "in-progress" | "completed">("all");
+  const [myLearningViewMode, setMyLearningViewMode] = useState<"card" | "list">("card");
+  const [myLearningPage, setMyLearningPage] = useState(1);
+  const [myLearningTotalPages, setMyLearningTotalPages] = useState(1);
+  const [myLearningCourses, setMyLearningCourses] = useState<Course[]>([]);
+  const [isMyLearningLoading, setIsMyLearningLoading] = useState(false);
 
-  // Fetch learner progress and enrollment status for all courses
-  const loadLearnerProgress = useCallback(async () => {
-    if (!allCourses.length || !userId) return;
-    setIsProgressLoading(true);
-    const progressMap: Record<string, number> = {};
-    const compMap: Record<string, string[]> = {};
+  const loadMyLearning = useCallback(async () => {
+    setIsMyLearningLoading(true);
+    try {
+      const res = await fetchMyLearning(myLearningPage, 6, myLearningFilter);
+      setMyLearningCourses(res.data);
+      setMyLearningTotalPages(res.meta.totalPages);
+      
+      const progressMap: Record<string, number> = { ...learnerProgress };
+      res.data.forEach((c: any) => {
+        progressMap[c.courseId] = c.progress;
+      });
+      setLearnerProgress(progressMap);
+    } catch (e) {
+      console.error("Failed to load my learning", e);
+    } finally {
+      setIsMyLearningLoading(false);
+    }
+  }, [myLearningPage, myLearningFilter, fetchMyLearning]);
 
-    await Promise.all(
-      allCourses.map(async (c) => {
-        try {
-          const progressRes = await api.get(`/courses/${c.courseId}/progress/${userId}`);
-          const data = progressRes.data;
-          const progressValue = typeof data === "number" ? data : (data?.progress ?? 0);
-          progressMap[c.courseId] = progressValue;
-
-          const completed = data?.completedLessons || [];
-          compMap[c.courseId] = completed;
-        } catch {
-          progressMap[c.courseId] = -1;
-        }
-      })
-    );
-    setLearnerProgress(progressMap);
-    setCompletedLessonsMap(compMap);
-    setIsProgressLoading(false);
-  }, [allCourses, userId]);
+  useEffect(() => {
+    setMyLearningPage(1);
+  }, [myLearningFilter]);
 
   useEffect(() => {
     if (!isAdminOrEmployee) {
-      loadLearnerProgress();
+      loadMyLearning();
     }
-  }, [allCourses, userId, isAdminOrEmployee, loadLearnerProgress]);
+  }, [myLearningPage, myLearningFilter, isAdminOrEmployee, loadMyLearning]);
+
+  const [isProgressLoading, setIsProgressLoading] = useState(true);
+
+  // Note: Only fetch learner progress for non-paginated legacy catalog usages if needed.
+  // With paginated My Learning, this is much less needed globally.
+  const loadLearnerProgress = useCallback(async () => {
+    // ... we no longer automatically trigger this for every course
+    setIsProgressLoading(false);
+  }, []);
 
   // Fetch user list for admin User Management
   const loadUsers = useCallback(async (q: string = "") => {
@@ -676,7 +741,6 @@ function DashboardPageContent() {
       async () => {
         try {
           await completeLesson(courseId, lessonId);
-          await loadLearnerProgress();
           const freshLessons = await loadCourseLessons(courseId);
           const freshLesson = freshLessons.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
           if (freshLesson) setSelectedLesson(freshLesson);
@@ -709,6 +773,7 @@ function DashboardPageContent() {
             setSelectedLesson(null);
             setCourseLessons([]);
           }
+          removeFromRecentlyViewed(courseId);
           await fetchCourses();
           await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
         } catch (err: any) {
@@ -813,11 +878,26 @@ function DashboardPageContent() {
 
   // Helper: load lessons from dedicated endpoint and set first lesson as selected
   const loadCourseLessons = async (courseId: string, autoSelectFirst = false) => {
+    setLessonsLoading(true);
     try {
       const res = await api.get(`/courses/${courseId}/lessons`);
       const allLessons: Lesson[] = res.data || [];
       const activeLessons = allLessons.filter((l) => !l.deletedAt);
       setCourseLessons(activeLessons);
+
+      if (!isAdminOrEmployee && userId) {
+        try {
+          const progressRes = await api.get(`/courses/${courseId}/progress/${userId}`);
+          const data = progressRes.data;
+          const progressValue = typeof data === "number" ? data : (data?.progress ?? 0);
+          setLearnerProgress((prev) => ({ ...prev, [courseId]: progressValue }));
+          const completed = data?.completedLessons || [];
+          setCompletedLessonsMap((prev) => ({ ...prev, [courseId]: completed }));
+        } catch (e) {
+          console.error("Failed to fetch course progress", e);
+        }
+      }
+
       if (autoSelectFirst && activeLessons.length > 0) {
         setSelectedLesson(activeLessons[0]);
       }
@@ -825,8 +905,19 @@ function DashboardPageContent() {
     } catch (err) {
       console.error(err);
       return [];
+    } finally {
+      setLessonsLoading(false);
     }
   };
+
+  useEffect(() => {
+    // If the component mounts and we already have a selectedCourse (from sessionStorage),
+    // fetch its lessons so the player isn't empty.
+    if (selectedCourse?.courseId && courseLessons.length === 0) {
+      loadCourseLessons(selectedCourse.courseId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // =========================================================================
 
@@ -956,7 +1047,7 @@ function DashboardPageContent() {
                 {/* Lesson Detail Bar & Action Panel */}
                 {selectedLesson && (
                   <div className="flex flex-col gap-4 bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 shadow-sm animate-fadeIn">
-                    <div className="flex justify-between items-start gap-4">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                       <div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-2.5 py-1 rounded-md">
                           Playing: {selectedLesson.materialType}
@@ -965,9 +1056,9 @@ function DashboardPageContent() {
                       </div>
 
                       {selectedLesson && (
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                           {isCompleted(selectedLesson) ? (
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-3">
                               <span className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-xl dark:bg-green-950/20 dark:text-green-400">
                                 <CheckCircle size={14} /> Completed
                               </span>
@@ -989,7 +1080,7 @@ function DashboardPageContent() {
                               )}
                             </div>
                           ) : (
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-3">
                               {!isAdminOrEmployee ? (
                                 !hasTests ? (
                                   <button
@@ -1225,7 +1316,12 @@ function DashboardPageContent() {
               className="flex flex-col gap-2 overflow-y-auto pr-1 select-none"
               style={{ maxHeight: "500px", scrollbarWidth: "thin" }}
             >
-              {lessons.length === 0 ? (
+              {lessonsLoading ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3">
+                  <Loader2 size={24} className="text-blue-500 animate-spin" />
+                  <span className="text-xs text-slate-400 font-medium animate-pulse">Loading playlist...</span>
+                </div>
+              ) : lessons.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-400">No lessons available in this course.</div>
               ) : (
                 lessons.map((l, index) => {
@@ -1260,11 +1356,19 @@ function DashboardPageContent() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-slate-900 truncate dark:text-zinc-100">{l.title}</p>
+                        <p className="text-xs font-bold text-slate-900 line-clamp-2 dark:text-zinc-100" title={l.title}>{l.title}</p>
                         <p className="text-[9px] text-slate-400 font-mono mt-0.5">{l.lessonId}</p>
                         
                         <div className="flex items-center gap-1.5 mt-1.5 justify-between">
-                          {isComp ? (
+                          {isAdminOrEmployee ? (
+                            l.tests && l.tests.length > 0 ? (
+                              <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500">
+                                <Award size={10} /> Test Added
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-slate-400">No Test</span>
+                            )
+                          ) : isComp ? (
                             <span className="flex items-center gap-0.5 text-[9px] text-green-600 font-bold dark:text-green-400">
                               <Check size={10} /> Completed
                             </span>
@@ -2173,31 +2277,58 @@ function DashboardPageContent() {
       return renderYouTubePlayerView();
     }
 
-    const enrolledCoursesList = allCourses.filter((c) => {
-      const progress = learnerProgress[c.courseId];
-      return progress !== undefined && progress >= 0;
-    });
+    // We now use myLearningCourses from backend pagination
 
-    if (isCoursesLoading || isProgressLoading) {
-      return (
-        <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
+    return (
+      <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">My Courses</h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Track progress and resume your active training modules.</p>
           </div>
-          <LoadingSpinner />
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex bg-slate-100 p-1 rounded-xl dark:bg-zinc-800/50">
+              {(["all", "in-progress", "completed"] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setMyLearningFilter(filter)}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg capitalize transition ${
+                    myLearningFilter === filter
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                      : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+                  }`}
+                >
+                  {filter.replace("-", " ")}
+                </button>
+              ))}
+            </div>
+            
+            <div className="flex bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 p-1 rounded-xl">
+              <button
+                onClick={() => setMyLearningViewMode("card")}
+                className={`rounded-lg p-1.5 text-xs font-bold transition flex items-center gap-1 ${myLearningViewMode === "card" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400" : "text-slate-655 hover:bg-slate-50 dark:text-zinc-400 dark:hover:bg-zinc-850"}`}
+                title="Grid View"
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                onClick={() => setMyLearningViewMode("list")}
+                className={`rounded-lg p-1.5 text-xs font-bold transition flex items-center gap-1 ${myLearningViewMode === "list" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400" : "text-slate-655 hover:bg-slate-50 dark:text-zinc-400 dark:hover:bg-zinc-850"}`}
+                title="List View"
+              >
+                <List size={16} />
+              </button>
+            </div>
+          </div>
         </div>
-      );
-    }
 
-    return (
-      <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">My Courses</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Track progress and resume your active training modules.</p>
-        </div>
-
-        {recentlyViewed.length > 0 && (
+        {isMyLearningLoading ? (
+          <div className="py-12">
+            <LoadingSpinner />
+          </div>
+        ) : (
+          <>
+            {recentlyViewed.length > 0 && (
           <div className="animate-fadeIn">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-3 flex items-center gap-1.5">
               <Activity size={12} className="text-blue-500" /> Recently Viewed
@@ -2223,7 +2354,7 @@ function DashboardPageContent() {
           </div>
         )}
 
-        {enrolledCoursesList.length === 0 ? (
+        {myLearningCourses.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#121212]">
             <BookOpenCheck size={42} className="text-slate-400 animate-pulse" />
             <h4 className="font-bold text-slate-800 dark:text-zinc-200">No Enrolled Courses Found</h4>
@@ -2235,13 +2366,13 @@ function DashboardPageContent() {
               Go to Course Catalog
             </button>
           </div>
-        ) : (
+        ) : myLearningViewMode === "card" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {enrolledCoursesList.map((c) => {
-              const progress = learnerProgress[c.courseId] ?? 0;
+            {myLearningCourses.map((c, idx) => {
+              const progress = c.progress ?? learnerProgress[c.courseId] ?? 0;
               return (
                 <div
-                  key={c.courseId}
+                  key={`${c.courseId}-${idx}`}
                   className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between hover:border-slate-300 hover:shadow-md transition cursor-pointer"
                   onClick={async () => {
                     setSelectedCourse(c);
@@ -2268,17 +2399,86 @@ function DashboardPageContent() {
               );
             })}
           </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#121212] overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 dark:bg-zinc-800/50">
+                  <tr>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Course ID</th>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Course Name</th>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Category</th>
+                    <th className="py-3 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-right">Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myLearningCourses.map((c, idx) => {
+                    const progress = c.progress ?? learnerProgress[c.courseId] ?? 0;
+                    const categoryIdToUse = c.categoryId ?? (c as any).category?.id;
+                    const catName = categoriesList.find((cat) => cat.categoryId === categoryIdToUse)?.categoryName || (c as any).category?.name || c.categoryName || "Training";
+                    const catStyle = getCategoryStyle(catName);
+                    
+                    return (
+                      <tr 
+                        key={`${c.courseId}-${idx}`} 
+                        onClick={async () => {
+                          setSelectedCourse(c);
+                          await loadCourseLessons(c.courseId, true);
+                        }}
+                        className="border-b border-slate-100 hover:bg-slate-50/50 dark:border-zinc-800 dark:hover:bg-zinc-800/10 transition cursor-pointer"
+                      >
+                        <td className="py-3 px-4 font-mono text-sm font-bold text-slate-550 dark:text-zinc-400">{c.courseId}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-zinc-100 text-sm truncate max-w-xs">{c.name}</td>
+                        <td className="py-3 px-4 text-xs font-semibold">
+                          <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text}`}>
+                            {catName}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            <span className="font-bold text-blue-600 dark:text-blue-400 text-xs">{progress}%</span>
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800 hidden sm:block">
+                              <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${progress}%` }} />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        
+        {myLearningTotalPages > 1 && (
+          <div className="flex justify-between items-center mt-4">
+            <button
+              disabled={myLearningPage === 1}
+              onClick={() => setMyLearningPage((p) => Math.max(1, p - 1))}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              <ChevronLeft size={14} /> Previous
+            </button>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+              Page {myLearningPage} of {myLearningTotalPages}
+            </span>
+            <button
+              disabled={myLearningPage === myLearningTotalPages}
+              onClick={() => setMyLearningPage((p) => Math.min(myLearningTotalPages, p + 1))}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+          </>
         )}
       </div>
     );
   };
 
-  // RENDER COURSE CATALOG (User/Learner Only) - Grid/List, search, category filter, pagination
   const renderCourseCatalog = () => {
-    if (currentTab === "evaluations" && isAdminOrEmployee) {
-      return <EvaluationsDashboard />;
-    }
-
     const pageSize = courseViewMode === "card" ? 6 : 10;
     const noResults = !catalogIsLoading && catalogCourses.length === 0;
 
@@ -2372,7 +2572,8 @@ function DashboardPageContent() {
             {catalogCourses.map((c) => {
               const progress = learnerProgress[c.courseId];
               const isEnrolled = progress !== undefined && progress >= 0;
-              const catName = categoriesList.find((cat) => cat.categoryId === c.categoryId)?.categoryName || c.categoryName || "Training";
+              const categoryIdToUse = c.categoryId ?? (c as any).category?.id;
+              const catName = categoriesList.find((cat) => cat.categoryId === categoryIdToUse)?.categoryName || (c as any).category?.name || c.categoryName || "Training";
               const catStyle = getCategoryStyle(catName);
 
               return (
@@ -2440,7 +2641,8 @@ function DashboardPageContent() {
                   {catalogCourses.map((c) => {
                     const progress = learnerProgress[c.courseId];
                     const isEnrolled = progress !== undefined && progress >= 0;
-                    const catName = categoriesList.find((cat) => cat.categoryId === c.categoryId)?.categoryName || c.categoryName || "Training";
+                    const categoryIdToUse = c.categoryId ?? (c as any).category?.id;
+                    const catName = categoriesList.find((cat) => cat.categoryId === categoryIdToUse)?.categoryName || (c as any).category?.name || c.categoryName || "Training";
                     const catStyle = getCategoryStyle(catName);
                     return (
                       <tr key={c.courseId} className="border-b border-slate-100 hover:bg-slate-50/50 dark:border-zinc-800 dark:hover:bg-zinc-800/10 transition">
@@ -2451,7 +2653,7 @@ function DashboardPageContent() {
                             {catName}
                           </span>
                         </td>
-                        <td className="py-2.5 px-4 text-sm font-semibold text-slate-650 dark:text-zinc-350">{c.lessons?.length ?? 0}</td>
+                        <td className="py-2.5 px-4 text-sm font-semibold text-slate-650 dark:text-zinc-350">{c.totalLessons ?? c.lessons?.length ?? 0}</td>
                         <td className="py-2.5 px-4 text-sm font-semibold text-slate-650 dark:text-zinc-350">{c.enrolled}</td>
                         <td className="py-2.5 px-4">
                           {isEnrolled ? (
@@ -2671,6 +2873,7 @@ function DashboardPageContent() {
         "This will permanently remove the course from the database. This cannot be undone.",
         async () => {
           await hardDeleteCourse(courseId);
+          removeFromRecentlyViewed(courseId);
           await loadTrash();
           await fetchCourses();
           await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
@@ -2961,6 +3164,8 @@ function DashboardPageContent() {
           return renderAdminOverview();
         case "manage-courses":
           return renderManageCourses();
+        case "evaluations":
+          return <EvaluationsDashboard />;
         case "trash":
           return renderRecycleBin();
         case "users":
