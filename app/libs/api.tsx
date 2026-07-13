@@ -10,3 +10,29 @@ export const api = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config;
+    
+    // Automatically retry Network Errors once
+    if (error.message === 'Network Error' && !config._retry) {
+      config._retry = true;
+      console.warn('[Axios] Retrying request due to Network Error:', config.url);
+      
+      // Add a small delay before retrying
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return api(config);
+    }
+
+    const isAuthCheck = error.response?.status === 401 && config?.url?.includes('/auth/profile');
+    const isProgressCheck = error.response?.status === 404 && config?.url?.includes('/progress/');
+
+    // Don't clutter the console for expected unauthenticated checks or unenrolled course checks
+    if (!isAuthCheck && !isProgressCheck) {
+      console.error(`[Axios Error Interceptor] ${config?.method?.toUpperCase() || 'UNKNOWN'} ${config?.url || 'UNKNOWN_URL'} - ${error.message || 'Unknown Error'} (Status: ${error.response?.status || 'N/A'})`);
+    }
+    return Promise.reject(error);
+  }
+);

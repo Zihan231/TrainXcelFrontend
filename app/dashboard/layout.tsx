@@ -7,10 +7,11 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/hooks/useUser";
 import { useTheme } from "@/context/ThemeContext";
+
+import { NotificationBell } from "@/components/NotificationBell";
 import { api } from "@/libs/api";
 import {
   Search,
-  Bell,
   Gift,
   Moon,
   Sun,
@@ -113,6 +114,13 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
         ) : (
           <>
             <NavItem
+              icon={<BarChart3 size={18} />}
+              label="My Progress"
+              href="/dashboard?tab=progress"
+              active={currentTab === "progress"}
+              onClick={onClose}
+            />
+            <NavItem
               icon={<BookOpen size={18} />}
               label="My Learning"
               href="/dashboard?tab=my-learning"
@@ -124,13 +132,6 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
               label="Course Catalog"
               href="/dashboard?tab=catalog"
               active={currentTab === "catalog"}
-              onClick={onClose}
-            />
-            <NavItem
-              icon={<BarChart3 size={18} />}
-              label="My Progress"
-              href="/dashboard?tab=progress"
-              active={currentTab === "progress"}
               onClick={onClose}
             />
             <NavItem
@@ -251,10 +252,10 @@ export default function DashboardLayout({
         {/* =======================================================================
           MAIN CONTENT AREA (Header + Children)
           ======================================================================= */}
-        <main className="flex flex-1 flex-col overflow-hidden">
+        <main className="flex flex-1 flex-col overflow-x-hidden">
           {/* Top Header */}
           <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/80 px-8 backdrop-blur-sm dark:border-zinc-800 dark:bg-[#121212]/80 relative z-30">
-            {/* Spacer to push actions to the right */}
+            {/* Left side: Mobile hamburger + Desktop empty spacer */}
             <button
               onClick={() => setIsMobileOpen(true)}
               className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800 lg:hidden"
@@ -262,13 +263,12 @@ export default function DashboardLayout({
             >
               <Menu size={20} />
             </button>
+            <div className="hidden lg:block" />
 
             {/* Right Actions */}
             <div className="flex items-center gap-5">
-              <div className="flex items-center gap-3 text-slate-400">
-                <button className="hover:text-slate-600 dark:hover:text-zinc-200">
-                  <Bell size={20} />
-                </button>
+              <div className="flex items-center gap-3 text-slate-400 relative">
+                <NotificationBell />
                 <button className="hover:text-slate-600 dark:hover:text-zinc-200">
                   <Gift size={20} />
                 </button>

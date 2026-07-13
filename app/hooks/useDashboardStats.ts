@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/libs/api";
+import { useUser } from "@/hooks/useUser";
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -74,6 +75,7 @@ export interface UserPerformance {
 }
 
 export function useDashboardStats() {
+  const { userId, role } = useUser();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [monthly, setMonthly] = useState<MonthlyProgress[]>([]);
   const [courseComparison, setCourseComparison] = useState<CourseComparison[]>([]);
@@ -89,6 +91,12 @@ export function useDashboardStats() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!userId) return;
+    if (role === 'user') {
+      setIsLoading(false);
+      return;
+    }
+
     const fetchAll = async () => {
       try {
         const [
@@ -126,7 +134,7 @@ export function useDashboardStats() {
       }
     };
     fetchAll();
-  }, []);
+  }, [userId, role]);
 
   const fetchUserPerformance = async (page: number) => {
     setIsFetchingLeaderboard(true);

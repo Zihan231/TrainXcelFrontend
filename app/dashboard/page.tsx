@@ -20,6 +20,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, ReferenceLine,
 } from "recharts";
+import { TestBuilder } from "@/components/TestBuilder";
+import { EvaluationsDashboard } from "@/components/EvaluationsDashboard";
+import { TestPlayer } from "@/components/TestPlayer";
 
 // Generates a unique color for any index using HSL
 function getColor(i: number): string {
@@ -136,14 +139,36 @@ function DashboardPageContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
+  const [lessonsLoading, setLessonsLoading] = useState(false);
+  const [showTestPlayer, setShowTestPlayer] = useState(false);
+  const [hasTests, setHasTests] = useState(false);
   const [recentlyViewed, setRecentlyViewed] = useState<Course[]>([]);
+  const [isNextLessonTransition, setIsNextLessonTransition] = useState(false);
+
+  // Fetch whether a lesson has tests
+  useEffect(() => {
+    const checkTests = async () => {
+      if (selectedLesson) {
+        try {
+          const res = await api.get(`/tests/lesson/${selectedLesson.id}`);
+          setHasTests(res.data && res.data.length > 0);
+        } catch (err) {
+          console.error("Failed to check tests for lesson:", err);
+          setHasTests(false);
+        }
+      } else {
+        setHasTests(false);
+      }
+    };
+    checkTests();
+  }, [selectedLesson]);
 
   // Mobile left-side menu
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Tab within the simulated Course Details page
 
-  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "settings">("player");
+  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "settings">("player");
 
   const [catalogSearch, setCatalogSearch] = useState("");
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<number | null>(null);
@@ -267,10 +292,10 @@ function DashboardPageContent() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const res = await api.get("/courses/stats/categories?limit=100");
-        const list = (res.data.data || []).map((cat: any) => ({
-          categoryId: cat.categoryId,
-          categoryName: cat.categoryName,
+        const res = await api.get("/courses/categories");
+        const list = (res.data || []).map((cat: any) => ({
+          categoryId: cat.id,
+          categoryName: cat.name,
         }));
         setCategoriesList(list);
         if (list.length > 0) {
@@ -331,9 +356,12 @@ function DashboardPageContent() {
     return () => clearTimeout(timer);
   }, [catalogSearch, fetchCourses]);
 
+  const [isProgressLoading, setIsProgressLoading] = useState(true);
+
   // Fetch learner progress and enrollment status for all courses
   const loadLearnerProgress = useCallback(async () => {
     if (!allCourses.length || !userId) return;
+    setIsProgressLoading(true);
     const progressMap: Record<string, number> = {};
     const compMap: Record<string, string[]> = {};
 
@@ -354,6 +382,7 @@ function DashboardPageContent() {
     );
     setLearnerProgress(progressMap);
     setCompletedLessonsMap(compMap);
+    setIsProgressLoading(false);
   }, [allCourses, userId]);
 
   useEffect(() => {
@@ -651,20 +680,23 @@ function DashboardPageContent() {
           await completeLesson(courseId, lessonId);
           await loadLearnerProgress();
           const freshLessons = await loadCourseLessons(courseId);
-          // Move to next lesson if available
-          const currentIdx = freshLessons.findIndex((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
-          if (currentIdx !== -1 && currentIdx < freshLessons.length - 1) {
-            setSelectedLesson(freshLessons[currentIdx + 1]);
-          } else {
-            const freshLesson = freshLessons.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
-            if (freshLesson) setSelectedLesson(freshLesson);
-          }
+          const freshLesson = freshLessons.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
+          if (freshLesson) setSelectedLesson(freshLesson);
         } catch (err: any) {
           alert(err.message);
         }
       },
       "Mark Complete"
     );
+  };
+
+  const triggerNextLesson = (next: Lesson) => {
+    setIsNextLessonTransition(true);
+    setShowTestPlayer(false);
+    setSelectedLesson(next);
+    setTimeout(() => {
+      setIsNextLessonTransition(false);
+    }, 600);
   };
 
   const confirmSoftDeleteCourse = (courseId: string) => {
@@ -763,6 +795,7 @@ function DashboardPageContent() {
         loadPaginatedUsers(usersPage);
       }
 
+
       // Close modal after brief timeout to show success state
       setTimeout(() => {
         setIsCreateEmployeeModalOpen(false);
@@ -814,6 +847,10 @@ function DashboardPageContent() {
         (completedList as any).includes(l.id)
       );
     };
+    const currentIdx = selectedLesson
+      ? lessons.findIndex((l: Lesson) => l.lessonId === selectedLesson.lessonId || String(l.id) === String(selectedLesson.id))
+      : -1;
+    const nextLesson = currentIdx !== -1 && currentIdx < lessons.length - 1 ? lessons[currentIdx + 1] : null;
 
     return (
       <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
@@ -860,227 +897,322 @@ function DashboardPageContent() {
           
           {/* MIDDLE COLUMN - Content Player & Sub-actions (70% width on Desktop) */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            
-            {/* Player Container */}
-            <div ref={playerRef} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-md dark:border-zinc-800 aspect-video flex flex-col items-center justify-center text-center">
-              {selectedLesson ? (
-                <div className="w-full h-full relative">
-                  {selectedLesson.materialType === "Video" ? (
-                    <iframe
-                      src={getEmbedLink(selectedLesson.materialLink)}
-                      className="w-full h-full border-0"
-                      allowFullScreen
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      title={selectedLesson.title}
-                    />
-                  ) : (
-                    <iframe
-                      src={selectedLesson.materialLink}
-                      className="w-full h-full border-0 bg-white"
-                      title={selectedLesson.title}
-                    />
-                  )}
-
-                  {/* Absolute Player Controls Overlay */}
-                  <div className="absolute top-4 right-4 z-10 flex gap-2">
-                    <a
-                      href={selectedLesson.materialLink} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-1.5 rounded-xl bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm px-3.5 py-2 text-xs font-semibold transition"
-                    >
-                      Open Link <ExternalLink size={12} />
-                    </a>
-                  </div>
-
-                  {/* Bottom-right Fullscreen Trigger */}
-                  <button
-                    onClick={toggleFullScreen}
-                    className="absolute bottom-4 right-4 z-15 flex h-8 w-8 items-center justify-center rounded-lg bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm transition"
-                    title="Toggle Fullscreen"
-                  >
-                    <Maximize2 size={16} />
-                  </button>
+            {isNextLessonTransition ? (
+              <div className="flex flex-col items-center justify-center py-40 gap-4 bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm animate-fadeIn">
+                <div className="relative flex items-center justify-center">
+                  <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+                  <Sparkles className="absolute h-5 w-5 text-blue-500 animate-pulse" />
                 </div>
-              ) : (
-                <div className="flex flex-col items-center gap-3 p-8">
-                  <MonitorPlay size={54} className="text-zinc-700 animate-bounce" />
-                  <h3 className="text-lg font-bold text-white">Select a Lesson to Start</h3>
-                  <p className="text-xs text-zinc-500 max-w-sm">Choose from the course outline playlist in the sidebar to review teaching slides or start stream playback.</p>
-                </div>
-              )}
-            </div>
-
-            {/* Lesson Detail Bar & Action Panel */}
-            {selectedLesson && (
-              <div className="flex flex-col gap-4 bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 shadow-sm animate-fadeIn">
-                <div className="flex justify-between items-start gap-4">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-2.5 py-1 rounded-md">
-                      Playing: {selectedLesson.materialType}
-                    </span>
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50 mt-2">{selectedLesson.title}</h3>
-                  </div>
-
-                  {!isAdminOrEmployee && selectedLesson && (
-                    isCompleted(selectedLesson) ? (
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-xl dark:bg-green-950/20 dark:text-green-400">
-                          <CheckCircle size={14} /> Completed
-                        </span>
-                        {lessons.length > 0 && (
-                          lessons[lessons.length - 1].lessonId === selectedLesson.lessonId ||
-                          String(lessons[lessons.length - 1].id) === selectedLesson.lessonId ||
-                          lessons[lessons.length - 1].id === selectedLesson.id
-                        ) && (
-                          <button
-                            onClick={() => alert("Demo: Launching Course Certification Assessment / Knowledge Quiz...")}
-                            className="rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
-                          >
-                            <Award size={14} /> Take Test
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleCompleteLesson(selectedCourse.courseId, selectedLesson.lessonId)}
-                        disabled={actionLoading}
-                        className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
-                      >
-                        Mark Complete
-                      </button>
-                    )
-                  )}
-                </div>
+                <p className="text-sm font-medium text-slate-500 dark:text-zinc-400 animate-pulse">Loading next lesson...</p>
               </div>
-            )}
+            ) : (
+              <>
+                {/* Player Container */}
+                <div ref={playerRef} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-md dark:border-zinc-800 aspect-video flex flex-col items-center justify-center text-center">
+                  {selectedLesson ? (
+                    <div className="w-full h-full relative">
+                      {selectedLesson.materialType === "Video" ? (
+                        <iframe
+                          src={getEmbedLink(selectedLesson.materialLink)}
+                          className="w-full h-full border-0"
+                          allowFullScreen
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          title={selectedLesson.title}
+                        />
+                      ) : (
+                        <iframe
+                          src={selectedLesson.materialLink}
+                          className="w-full h-full border-0 bg-white"
+                          title={selectedLesson.title}
+                        />
+                      )}
 
-            {/* Admin / Employee Management Area Tabs */}
-            {isAdminOrEmployee && (
-              <div className="flex flex-col gap-4">
-                <div className="flex border-b border-slate-200 dark:border-zinc-800">
-                  <button
-                    onClick={() => setCourseDetailsTab("player")}
-                    className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "player" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
-                  >
-                    Information
-                  </button>
-                  <button
-                    onClick={() => setCourseDetailsTab("add-lesson")}
-                    className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "add-lesson" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
-                  >
-                    Add Lesson
-                  </button>
-                  <button
-                    onClick={() => setCourseDetailsTab("settings")}
-                    className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "settings" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
-                  >
-                    Course Settings
-                  </button>
-                </div>
-
-                <div className="p-1">
-                  {courseDetailsTab === "player" && (
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                      <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-2">Course Metrics Summary</h4>
-                      <div className="grid grid-cols-2 gap-4 mt-3">
-                        <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 rounded-xl">
-                          <span className="text-xs text-slate-400 font-semibold block">Total Enrolled Learners</span>
-                          <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{selectedCourse.enrolled}</span>
-                        </div>
-                        <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 rounded-xl">
-                          <span className="text-xs text-slate-400 font-semibold block">Lesson Chapters Count</span>
-                          <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{lessons.length}</span>
-                        </div>
+                      {/* Absolute Player Controls Overlay */}
+                      <div className="absolute top-4 right-4 z-10 flex gap-2">
+                        <a
+                          href={selectedLesson.materialLink} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1.5 rounded-xl bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm px-3.5 py-2 text-xs font-semibold transition"
+                        >
+                          Open Link <ExternalLink size={12} />
+                        </a>
                       </div>
+
+                      {/* Bottom-right Fullscreen Trigger */}
+                      <button
+                        onClick={toggleFullScreen}
+                        className="absolute bottom-4 right-4 z-15 flex h-8 w-8 items-center justify-center rounded-lg bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm transition"
+                        title="Toggle Fullscreen"
+                      >
+                        <Maximize2 size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 p-8">
+                      <MonitorPlay size={54} className="text-zinc-700 animate-bounce" />
+                      <h3 className="text-lg font-bold text-white">Select a Lesson to Start</h3>
+                      <p className="text-xs text-zinc-500 max-w-sm">Choose from the course outline playlist in the sidebar to review teaching slides or start stream playback.</p>
                     </div>
                   )}
+                </div>
 
-                  {courseDetailsTab === "add-lesson" && (
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                      <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Add Lesson</h4>
-                      {lessonFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{lessonFormError}</div>}
-                      {lessonFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{lessonFormSuccess}</div>}
+                {/* Lesson Detail Bar & Action Panel */}
+                {selectedLesson && (
+                  <div className="flex flex-col gap-4 bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 shadow-sm animate-fadeIn">
+                    <div className="flex justify-between items-start gap-4">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-2.5 py-1 rounded-md">
+                          Playing: {selectedLesson.materialType}
+                        </span>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50 mt-2">{selectedLesson.title}</h3>
+                      </div>
 
-                      <form onSubmit={handleAddLesson} className="flex flex-col gap-4">
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-xs font-semibold text-slate-500">Lesson Title</label>
-                          <input
-                            type="text" value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)}
-                            placeholder="e.g. Introduction to App Router"
-                            className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
-                          />
-                        </div>
-                        <div className="flex grid-cols-2 gap-3">
-                          <div className="flex-1 flex flex-col gap-1.5">
-                            <label className="text-xs font-semibold text-slate-500">Material Type</label>
-                            <select
-                              value={newLessonType} onChange={(e) => setNewLessonType(e.target.value)}
-                              className="rounded-xl border border-slate-200 bg-white p-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
-                            >
-                              <option value="Video">Video Player Link</option>
-                              <option value="PDF">PDF document</option>
-                              <option value="PPT">PPT presentation slide</option>
-                            </select>
-                          </div>
-                          <div className="flex-1 flex flex-col gap-1.5">
-                            <label className="text-xs font-semibold text-slate-500">Material Link</label>
-                            <input
-                              type="text" value={newLessonLink} onChange={(e) => setNewLessonLink(e.target.value)}
-                              placeholder="https://example.com/materials/..."
-                              className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
-                            />
-                          </div>
-                        </div>
-                        <button
-                          type="submit" disabled={actionLoading}
-                          className="flex justify-center items-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 w-full"
-                        >
-                          {isDeployingLesson ? (
-                            <>
-                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                              Deploying Lesson...
-                            </>
+                      {selectedLesson && (
+                        <div className="flex items-center gap-3">
+                          {isCompleted(selectedLesson) ? (
+                            <div className="flex items-center gap-3">
+                              <span className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-xl dark:bg-green-950/20 dark:text-green-400">
+                                <CheckCircle size={14} /> Completed
+                              </span>
+                              {hasTests && (
+                                <button
+                                  onClick={() => setShowTestPlayer(!showTestPlayer)}
+                                  className="rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <Award size={14} /> {showTestPlayer ? "Hide Tests" : "Tests & Leaderboard"}
+                                </button>
+                              )}
+                              {!isAdminOrEmployee && nextLesson && (
+                                <button
+                                  onClick={() => triggerNextLesson(nextLesson)}
+                                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition flex items-center gap-1 shadow-sm"
+                                >
+                                  Next Lesson →
+                                </button>
+                              )}
+                            </div>
                           ) : (
-                            "Add Lesson"
+                            <div className="flex items-center gap-3">
+                              {!isAdminOrEmployee ? (
+                                !hasTests ? (
+                                  <button
+                                    onClick={() => handleCompleteLesson(selectedCourse.courseId, selectedLesson.lessonId)}
+                                    disabled={actionLoading}
+                                    className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
+                                  >
+                                    Mark Complete
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setShowTestPlayer(!showTestPlayer)}
+                                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
+                                  >
+                                    <Award size={14} /> {showTestPlayer ? "Hide Tests" : "Take Test"}
+                                  </button>
+                                )
+                              ) : (
+                                hasTests && (
+                                  <button
+                                    onClick={() => setShowTestPlayer(!showTestPlayer)}
+                                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
+                                  >
+                                    <Award size={14} /> {showTestPlayer ? "Hide Preview" : "Preview Test"}
+                                  </button>
+                                )
+                              )}
+                            </div>
                           )}
-                        </button>
-                      </form>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                      {isDeployingLesson && (
-                        <div className="mt-4 p-4 rounded-xl border border-blue-100 bg-blue-50/20 dark:border-blue-900/20 dark:bg-blue-950/10 flex items-center gap-3 animate-pulse">
-                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-900 dark:text-zinc-50">Syncing with databases...</p>
-                            <p className="text-[10px] text-slate-400">Allocating assets and custom LES custom ID codes.</p>
+                {/* Test Player / Admin Editor Section */}
+                {selectedLesson && showTestPlayer && (
+                  <div className="mt-6 animate-fadeIn">
+                    <TestPlayer
+                      lessonId={selectedLesson.id}
+                      isAdmin={isAdminOrEmployee}
+                      hasNextLesson={!!nextLesson}
+                      onNextLesson={() => {
+                        if (nextLesson) triggerNextLesson(nextLesson);
+                      }}
+                      onSuccess={async () => {
+                        await loadLearnerProgress();
+                        if (selectedCourse) {
+                          await loadCourseLessons(selectedCourse.courseId);
+                        }
+                      }}
+                      onCancel={() => setShowTestPlayer(false)}
+                    />
+                  </div>
+                )}
+
+                {/* Admin / Employee Management Area Tabs */}
+                {isAdminOrEmployee && (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex border-b border-slate-200 dark:border-zinc-800">
+                      <button
+                        onClick={() => setCourseDetailsTab("player")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "player" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Information
+                      </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("add-lesson")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "add-lesson" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Add Lesson
+                      </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("add-test")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "add-test" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Add Test
+                      </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("settings")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "settings" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Course Settings
+                      </button>
+                    </div>
+
+                    <div className="p-1">
+                      {courseDetailsTab === "player" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-2">Course Metrics Summary</h4>
+                          <div className="grid grid-cols-2 gap-4 mt-3">
+                            <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 rounded-xl">
+                              <span className="text-xs text-slate-400 font-semibold block">Total Enrolled Learners</span>
+                              <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{selectedCourse.enrolled}</span>
+                            </div>
+                            <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 rounded-xl">
+                              <span className="text-xs text-slate-400 font-semibold block">Lesson Chapters Count</span>
+                              <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{lessons.length}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {courseDetailsTab === "add-lesson" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Add Lesson</h4>
+                          {lessonFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{lessonFormError}</div>}
+                          {lessonFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{lessonFormSuccess}</div>}
+
+                          <form onSubmit={handleAddLesson} className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">Lesson Title</label>
+                              <input
+                                type="text" value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)}
+                                placeholder="e.g. Introduction to App Router"
+                                className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
+                              />
+                            </div>
+                            <div className="flex grid-cols-2 gap-3">
+                              <div className="flex-1 flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-500">Material Type</label>
+                                <select
+                                  value={newLessonType} onChange={(e) => setNewLessonType(e.target.value)}
+                                  className="rounded-xl border border-slate-200 bg-white p-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                                >
+                                  <option value="Video">Video Player Link</option>
+                                  <option value="PDF">PDF document</option>
+                                  <option value="PPT">PPT presentation slide</option>
+                                </select>
+                              </div>
+                              <div className="flex-1 flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-500">Material Link</label>
+                                <input
+                                  type="text" value={newLessonLink} onChange={(e) => setNewLessonLink(e.target.value)}
+                                  placeholder="https://example.com/materials/..."
+                                  className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              type="submit" disabled={actionLoading}
+                              className="flex justify-center items-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 w-full"
+                            >
+                              {isDeployingLesson ? (
+                                <>
+                                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                  Deploying Lesson...
+                                </>
+                              ) : (
+                                "Add Lesson"
+                              )}
+                            </button>
+                          </form>
+
+                          {isDeployingLesson && (
+                            <div className="mt-4 p-4 rounded-xl border border-blue-100 bg-blue-50/20 dark:border-blue-900/20 dark:bg-blue-950/10 flex items-center gap-3 animate-pulse">
+                              <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-900 dark:text-zinc-50">Syncing with databases...</p>
+                                <p className="text-[10px] text-slate-400">Allocating assets and custom LES custom ID codes.</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {courseDetailsTab === "add-test" && (
+                        <TestBuilder
+                          courseId={selectedCourse.id}
+                          lessons={lessons}
+                          onSuccess={async (createdForLessonId?: number) => {
+                            setCourseDetailsTab("player");
+                            if (selectedCourse) {
+                              const freshLessons = await loadCourseLessons(selectedCourse.courseId);
+                              // Navigate to the lesson the test was just added to
+                              if (createdForLessonId && freshLessons?.length) {
+                                const targetLesson = freshLessons.find(
+                                  (l: any) => l.id === createdForLessonId
+                                );
+                                if (targetLesson) {
+                                  setSelectedLesson(targetLesson);
+                                  setShowTestPlayer(true);
+                                }
+                              } else if (selectedLesson) {
+                                // Fallback: refresh hasTests for currently selected lesson
+                                try {
+                                  const res = await api.get(`/tests/lesson/${selectedLesson.id}`);
+                                  setHasTests(res.data && res.data.length > 0);
+                                } catch {}
+                              }
+                            }
+                          }}
+                        />
+                      )}
+
+                      {courseDetailsTab === "settings" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Settings</h4>
+                          <div className="flex flex-col gap-3">
+                            <span className="text-xs text-slate-400">Toggle course visibility to users:</span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "active")}
+                                className={`rounded-xl px-4 py-2 text-xs font-semibold border transition ${selectedCourse.status === "active" ? "bg-green-500 text-white border-transparent" : "border-slate-200 dark:border-zinc-800 text-slate-600"}`}
+                              >
+                                Set Active
+                              </button>
+                              <button
+                                onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "draft")}
+                                className={`rounded-xl px-4 py-2 text-xs font-semibold border transition ${selectedCourse.status === "draft" ? "bg-zinc-500 text-white border-transparent" : "border-slate-200 dark:border-zinc-800 text-slate-600"}`}
+                              >
+                                Set Draft
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
                     </div>
-                  )}
-
-                  {courseDetailsTab === "settings" && (
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                      <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Settings</h4>
-                      <div className="flex flex-col gap-3">
-                        <span className="text-xs text-slate-400">Toggle course visibility to users:</span>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "active")}
-                            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition ${selectedCourse.status === "active" ? "bg-green-500 text-white border-transparent" : "border-slate-200 dark:border-zinc-800 text-slate-600"}`}
-                          >
-                            Set Active
-                          </button>
-                          <button
-                            onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "draft")}
-                            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition ${selectedCourse.status === "draft" ? "bg-zinc-500 text-white border-transparent" : "border-slate-200 dark:border-zinc-800 text-slate-600"}`}
-                          >
-                            Set Draft
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -1101,11 +1233,17 @@ function DashboardPageContent() {
                 lessons.map((l, index) => {
                   const isCur = selectedLesson?.lessonId === l.lessonId;
                   const isComp = isCompleted(l);
+                  const isLocked = !isAdminOrEmployee && index > 0 && !isCompleted(lessons[index - 1]);
+                  
                   return (
                     <div
                       key={l.lessonId}
-                      onClick={() => setSelectedLesson(l)}
-                      className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border cursor-pointer ${
+                      onClick={() => {
+                        if (!isLocked) setSelectedLesson(l);
+                      }}
+                      className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border ${
+                        isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                      } ${
                         isCur
                           ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/40 dark:text-blue-400"
                           : "hover:bg-slate-50 border-transparent dark:hover:bg-zinc-800/40"
@@ -2042,7 +2180,17 @@ function DashboardPageContent() {
       return progress !== undefined && progress >= 0;
     });
 
-    if (isCoursesLoading) return <LoadingSpinner />;
+    if (isCoursesLoading || isProgressLoading) {
+      return (
+        <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">My Courses</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Track progress and resume your active training modules.</p>
+          </div>
+          <LoadingSpinner />
+        </div>
+      );
+    }
 
     return (
       <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
@@ -2129,6 +2277,10 @@ function DashboardPageContent() {
 
   // RENDER COURSE CATALOG (User/Learner Only) - Grid/List, search, category filter, pagination
   const renderCourseCatalog = () => {
+    if (currentTab === "evaluations" && isAdminOrEmployee) {
+      return <EvaluationsDashboard />;
+    }
+
     const pageSize = courseViewMode === "card" ? 6 : 10;
     const noResults = !catalogIsLoading && catalogCourses.length === 0;
 
@@ -2244,7 +2396,7 @@ function DashboardPageContent() {
                   <div className="mt-5 pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
                     <div className="text-left">
                       <span className="text-[10px] text-slate-400 block font-medium">Chapters</span>
-                      <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.lessons?.length ?? 0}</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.totalLessons ?? c.lessons?.length ?? 0}</span>
                     </div>
 
                     {isEnrolled ? (
@@ -2402,7 +2554,7 @@ function DashboardPageContent() {
             <StatCard icon={<CheckCircle size={18} />} label="Completed Courses" value={completedCount} accent="#10b981" />
             <button
               onClick={() => router.push("/dashboard?tab=certificates")}
-              className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 self-start pl-2 transition-all"
+              className="text-[11px] font-bold text-emerald-600 hover:bg-emerald-700 dark:text-emerald-400 self-start pl-2 transition-all"
             >
               See all completed courses →
             </button>
@@ -2789,14 +2941,15 @@ function DashboardPageContent() {
     ? [
         { key: "overview", label: "Overview" },
         { key: "manage-courses", label: "Manage Courses" },
+        { key: "evaluations", label: "Evaluations" },
         { key: "trash", label: "Recycle Bin" },
         { key: "users", label: "Users" },
         { key: "settings", label: "Settings" },
       ]
     : [
+        { key: "progress", label: "My Progress" },
         { key: "overview", label: "My Learning" },
         { key: "catalog", label: "Catalog" },
-        { key: "progress", label: "Progress" },
         { key: "certificates", label: "Certificates" },
         { key: "settings", label: "Settings" },
       ];

@@ -99,13 +99,6 @@ export default function LoginPage() {
             {isSubmitting ? "Signing in..." : "Sign In"}
           </button>
         </form>
-
-        <div className="mt-8 text-center text-sm text-slate-500 dark:text-zinc-400">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400">
-            Contact your Admin
-          </Link>
-        </div>
       </div>
     </div>
   );

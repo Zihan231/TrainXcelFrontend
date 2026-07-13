@@ -32,6 +32,7 @@ export interface Course {
   categoryId: number;
   lessons?: Lesson[];
   categoryName?: string;
+  totalLessons?: number;
 }
 
 export interface UserProfile {
