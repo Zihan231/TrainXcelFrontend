@@ -88,14 +88,7 @@ export function NotificationBell() {
 
       {isOpen && (
         <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 8px)",
-            right: 0,
-            zIndex: 9999,
-            width: "320px",
-          }}
-          className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden animate-fadeIn"
+          className="absolute top-[calc(100%+8px)] -right-16 sm:right-0 z-[9999] w-[300px] sm:w-[320px] max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden animate-fadeIn"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50">
