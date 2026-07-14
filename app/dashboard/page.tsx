@@ -12,7 +12,8 @@ import {
   AlertTriangle, Activity, Trophy, PlusCircle, CheckCircle,
   Play, FileText, ExternalLink, ShieldAlert, Award, Search,
   Check, BookOpenCheck, Settings, ArrowLeft, MonitorPlay, Sparkles, Filter,
-  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2, ChevronLeft, ChevronRight, Clock
+  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2, ChevronLeft, ChevronRight, Clock,
+  Pencil, X
 } from "lucide-react";
 import {
   AreaChart, Area,
@@ -277,6 +278,8 @@ function DashboardPageContent() {
     hardDeleteLesson,
     emptyTrash,
     createEmployee,
+    updateCourse,
+    updateLesson,
   } = useCourses();
 
   // Learner/User State
@@ -381,6 +384,44 @@ function DashboardPageContent() {
   const [deletedLessonDetails, setDeletedLessonDetails] = useState<any | null>(null);
   const [showEmployeePassword, setShowEmployeePassword] = useState(false);
 
+  // Edit course state
+  const [editCourseName, setEditCourseName] = useState("");
+  const [editCourseCategoryId, setEditCourseCategoryId] = useState<number | null>(null);
+  const [isUpdatingCourse, setIsUpdatingCourse] = useState(false);
+  const [editCourseFormError, setEditCourseFormError] = useState("");
+  const [editCourseFormSuccess, setEditCourseFormSuccess] = useState("");
+
+  useEffect(() => {
+    if (selectedCourse) {
+      setEditCourseName(selectedCourse.name);
+      setEditCourseCategoryId(selectedCourse.categoryId || null);
+      setEditCourseFormError("");
+      setEditCourseFormSuccess("");
+    }
+  }, [selectedCourse]);
+
+  // Edit lesson state
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [editLessonTitle, setEditLessonTitle] = useState("");
+  const [editLessonDescription, setEditLessonDescription] = useState("");
+  const [editLessonLink, setEditLessonLink] = useState("");
+  const [editLessonType, setEditLessonType] = useState<"Video" | "PDF" | "PPT" | "DOCX">("Video");
+  const [editLessonInputMode, setEditLessonInputMode] = useState<"link" | "file">("link");
+  const [isUpdatingLesson, setIsUpdatingLesson] = useState(false);
+  const [isUploadingEditFile, setIsUploadingEditFile] = useState(false);
+  const [editLessonError, setEditLessonError] = useState("");
+
+  useEffect(() => {
+    if (editingLesson) {
+      setEditLessonTitle(editingLesson.title);
+      setEditLessonDescription(editingLesson.description || "");
+      setEditLessonLink(editingLesson.materialLink);
+      setEditLessonType(editingLesson.materialType as any);
+      setEditLessonInputMode("link");
+      setEditLessonError("");
+    }
+  }, [editingLesson]);
+
   // Course catalog pagination state
   const [catalogIsLoading, setCatalogIsLoading] = useState(false);
   const [catalogPage, setCatalogPage] = useState(1);
@@ -423,6 +464,7 @@ function DashboardPageContent() {
   const [courseFormSuccess, setCourseFormSuccess] = useState("");
 
   const [newLessonTitle, setNewLessonTitle] = useState("");
+  const [newLessonDescription, setNewLessonDescription] = useState("");
   const [newLessonType, setNewLessonType] = useState("Video");
   const [newLessonLink, setNewLessonLink] = useState("");
   const [lessonInputMode, setLessonInputMode] = useState<"link" | "upload">("link");
@@ -936,6 +978,7 @@ function DashboardPageContent() {
           const typeToSubmit = lessonInputMode === "link" ? detectMaterialType(newLessonLink) : newLessonType;
           await addLesson(selectedCourse.courseId, {
             title: newLessonTitle,
+            description: newLessonDescription,
             materialType: typeToSubmit as "Video" | "PDF" | "PPT" | "DOCX",
             materialLink: newLessonLink,
             status: "Active",
@@ -945,6 +988,7 @@ function DashboardPageContent() {
             setLessonFormSuccess(prev => prev === "Lesson added successfully!" ? "" : prev);
           }, 10000);
           setNewLessonTitle("");
+          setNewLessonDescription("");
           setNewLessonLink("");
           await loadCourseLessons(selectedCourse.courseId);
           fetchCourses();
@@ -956,6 +1000,79 @@ function DashboardPageContent() {
       },
       "Deploy Lesson"
     );
+  };
+
+  const handleEditCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCourse) return;
+    setEditCourseFormError("");
+    setEditCourseFormSuccess("");
+    setIsUpdatingCourse(true);
+    try {
+      const updated = await updateCourse(selectedCourse.courseId, {
+        name: editCourseName,
+        categoryId: editCourseCategoryId || undefined,
+      });
+      setSelectedCourse(updated);
+      setEditCourseFormSuccess("Course updated successfully!");
+      setTimeout(() => setEditCourseFormSuccess(""), 10000);
+      fetchCourses();
+    } catch (err: any) {
+      setEditCourseFormError(err.message || "Failed to update course.");
+    } finally {
+      setIsUpdatingCourse(false);
+    }
+  };
+
+  const handleEditLessonFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingEditFile(true);
+    setEditLessonError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await api.post("/courses/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      if (res.data?.url) {
+        setEditLessonLink(res.data.url);
+        const detected = detectMaterialType(res.data.url);
+        setEditLessonType(detected as any);
+      }
+    } catch (err: any) {
+      setEditLessonError(err.response?.data?.message || "File upload failed.");
+    } finally {
+      setIsUploadingEditFile(false);
+    }
+  };
+
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLesson || !selectedCourse) return;
+    setIsUpdatingLesson(true);
+    setEditLessonError("");
+    try {
+      const typeToSubmit = editLessonInputMode === "link" ? detectMaterialType(editLessonLink) : editLessonType;
+      await updateLesson(selectedCourse.courseId, editingLesson.lessonId, {
+        title: editLessonTitle,
+        description: editLessonDescription,
+        materialType: typeToSubmit,
+        materialLink: editLessonLink,
+      });
+      await loadCourseLessons(selectedCourse.courseId);
+      if (selectedLesson && selectedLesson.lessonId === editingLesson.lessonId) {
+        setSelectedLesson(prev => prev ? { ...prev, title: editLessonTitle, description: editLessonDescription, materialLink: editLessonLink, materialType: typeToSubmit } : null);
+      }
+      setEditingLesson(null);
+    } catch (err: any) {
+      setEditLessonError(err.message || "Failed to update lesson.");
+    } finally {
+      setIsUpdatingLesson(false);
+    }
   };
 
   // Learner Actions
@@ -1490,6 +1607,14 @@ function DashboardPageContent() {
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">Lesson Description</label>
+                              <textarea
+                                value={newLessonDescription || ""} onChange={(e) => setNewLessonDescription(e.target.value)}
+                                placeholder="Write a brief overview of this lesson chapter..."
+                                className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 w-full min-h-[70px]"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
                               <label className="text-xs font-semibold text-slate-500">Material Source</label>
                               <div className="flex bg-slate-105 p-1 rounded-xl dark:bg-zinc-805/50 w-fit border border-slate-200 dark:border-zinc-800">
                                 <button
@@ -1596,10 +1721,62 @@ function DashboardPageContent() {
                       )}
 
                       {courseDetailsTab === "settings" && (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Settings</h4>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col gap-6">
+                          <div>
+                            <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-1">Edit Course</h4>
+                            <p className="text-xs text-slate-500 dark:text-zinc-400">Modify the details of this course.</p>
+                          </div>
+                          
+                          {editCourseFormError && (
+                            <div className="p-3 text-xs bg-red-50 text-red-600 rounded-xl border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30">
+                              {editCourseFormError}
+                            </div>
+                          )}
+                          {editCourseFormSuccess && (
+                            <div className="p-3 text-xs bg-green-50 text-green-600 rounded-xl border border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/30">
+                              {editCourseFormSuccess}
+                            </div>
+                          )}
+
+                          <form onSubmit={handleEditCourse} className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Name</label>
+                              <input
+                                type="text"
+                                value={editCourseName}
+                                onChange={(e) => setEditCourseName(e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                                required
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Category</label>
+                              <select
+                                value={editCourseCategoryId || ""}
+                                onChange={(e) => setEditCourseCategoryId(Number(e.target.value))}
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                              >
+                                <option value="">Select Category</option>
+                                {categoriesList.map((cat) => (
+                                  <option key={cat.categoryId} value={cat.categoryId}>
+                                    {cat.categoryName}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <button
+                              type="submit"
+                              disabled={isUpdatingCourse}
+                              className="self-start rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
+                            >
+                              {isUpdatingCourse ? "Saving..." : "Save Changes"}
+                            </button>
+                          </form>
+
+                          <div className="h-px bg-slate-100 dark:bg-zinc-800 w-full" />
+
                           <div className="flex flex-col gap-3">
-                            <span className="text-xs text-slate-400">Toggle course visibility to users:</span>
+                            <span className="text-xs font-bold text-slate-500 dark:text-zinc-400">Toggle course visibility to users:</span>
                             <div className="flex gap-2">
                               {selectedCourse.status === "active" ? (
                                 <button
@@ -1743,16 +1920,28 @@ function DashboardPageContent() {
                             <span className="text-[9px] text-slate-400">Not Completed</span>
                           )}
                           {isAdminOrEmployee && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                confirmSoftDeleteLesson(selectedCourse.courseId, l.lessonId);
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 transition rounded hover:bg-rose-50 dark:hover:bg-rose-950/20"
-                              title="Move lesson to Recycle Bin"
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingLesson(l);
+                                }}
+                                className="p-1 text-slate-450 hover:text-blue-600 transition rounded hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                title="Edit lesson details"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  confirmSoftDeleteLesson(selectedCourse.courseId, l.lessonId);
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-600 transition rounded hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                                title="Move lesson to Recycle Bin"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -3738,6 +3927,117 @@ function DashboardPageContent() {
                   className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition disabled:opacity-50"
                 >
                   Create Course
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Lesson Modal overlay */}
+      {editingLesson && (
+        <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 animate-scaleUp">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-zinc-800/80">
+              <h3 className="font-bold text-slate-900 dark:text-zinc-50">Edit Lesson</h3>
+              <button
+                onClick={() => setEditingLesson(null)}
+                className="rounded-lg p-1 hover:bg-slate-50 dark:hover:bg-zinc-850 text-slate-400 hover:text-slate-600 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {editLessonError && (
+              <div className="mt-3 p-3 text-xs bg-red-50 text-red-600 rounded-xl border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30">
+                {editLessonError}
+              </div>
+            )}
+
+            <form onSubmit={handleEditLessonSubmit} className="mt-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Lesson Title</label>
+                <input
+                  type="text"
+                  value={editLessonTitle}
+                  onChange={(e) => setEditLessonTitle(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                  required
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Description</label>
+                <textarea
+                  value={editLessonDescription}
+                  onChange={(e) => setEditLessonDescription(e.target.value)}
+                  placeholder="Lesson description..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 min-h-[70px]"
+                />
+              </div>
+
+              <div className="flex items-center gap-4 mt-1">
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-zinc-300 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={editLessonInputMode === "link"}
+                    onChange={() => setEditLessonInputMode("link")}
+                    className="accent-blue-600"
+                  />
+                  Provide Link
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-zinc-300 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={editLessonInputMode === "file"}
+                    onChange={() => setEditLessonInputMode("file")}
+                    className="accent-blue-600"
+                  />
+                  Upload File
+                </label>
+              </div>
+
+              {editLessonInputMode === "link" ? (
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Material Link</label>
+                  <input
+                    type="text"
+                    value={editLessonLink}
+                    onChange={(e) => setEditLessonLink(e.target.value)}
+                    placeholder="e.g. YouTube URL or PDF URL"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                    required
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Upload File</label>
+                  <input
+                    type="file"
+                    accept="video/*,.pdf,.ppt,.pptx,.docx"
+                    onChange={handleEditLessonFileUpload}
+                    className="text-xs block w-full text-slate-505 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-200"
+                  />
+                  {isUploadingEditFile && (
+                    <span className="text-[10px] text-blue-500 animate-pulse mt-1">Uploading file...</span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => setEditingLesson(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-705 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingLesson || isUploadingEditFile}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  {isUpdatingLesson ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>

@@ -133,6 +133,26 @@ export function useCourses() {
     []
   );
 
+  const updateCourse = useCallback(async (courseId: string, data: { name?: string; categoryId?: number; status?: string }) => {
+    try {
+      const res = await api.patch(`/courses/${courseId}`, data);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to update course.");
+    }
+  }, []);
+
+  const updateLesson = useCallback(async (courseId: string, lessonId: string, data: { title?: string; description?: string; materialType?: string; materialLink?: string; status?: string }) => {
+    try {
+      const res = await api.patch(`/courses/${courseId}/lessons/${lessonId}`, data);
+      return res.data;
+    } catch (err) {
+      const message = (err as ApiErrorShape)?.response?.data?.message;
+      throw new Error(message || "Failed to update lesson.");
+    }
+  }, []);
+
 
   const searchUsers = useCallback(async (query: string = "") => {
     try {
@@ -331,5 +351,7 @@ export function useCourses() {
     hardDeleteLesson,
     emptyTrash,
     createEmployee,
+    updateCourse,
+    updateLesson,
   };
 }
