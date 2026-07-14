@@ -1463,14 +1463,7 @@ function DashboardPageContent() {
                               <span className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-xl dark:bg-green-950/20 dark:text-green-400">
                                 <CheckCircle size={14} /> Completed
                               </span>
-                              {hasTests && (
-                                <button
-                                  onClick={() => setShowTestPlayer(!showTestPlayer)}
-                                  className="rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
-                                >
-                                  <Award size={14} /> {showTestPlayer ? "Hide Tests" : "Tests & Leaderboard"}
-                                </button>
-                              )}
+
                               {!isAdminOrEmployee && nextLesson && (
                                 <button
                                   onClick={() => triggerNextLesson(nextLesson)}
@@ -1482,32 +1475,14 @@ function DashboardPageContent() {
                             </div>
                           ) : (
                             <div className="flex flex-wrap items-center gap-3">
-                              {!isAdminOrEmployee ? (
-                                !hasTests ? (
-                                  <button
-                                    onClick={() => handleCompleteLesson(selectedCourse.courseId, selectedLesson.lessonId)}
-                                    disabled={actionLoading}
-                                    className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
-                                  >
-                                    Mark Complete
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => setShowTestPlayer(!showTestPlayer)}
-                                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
-                                  >
-                                    <Award size={14} /> {showTestPlayer ? "Hide Tests" : "Take Test"}
-                                  </button>
-                                )
-                              ) : (
-                                hasTests && (
-                                  <button
-                                    onClick={() => setShowTestPlayer(!showTestPlayer)}
-                                    className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 text-xs font-bold px-4 py-2 transition flex items-center gap-1.5 shadow-sm"
-                                  >
-                                    <Award size={14} /> {showTestPlayer ? "Hide Preview" : "Preview Test"}
-                                  </button>
-                                )
+                              {!isAdminOrEmployee && !hasTests && (
+                                <button
+                                  onClick={() => handleCompleteLesson(selectedCourse.courseId, selectedLesson.lessonId)}
+                                  disabled={actionLoading}
+                                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
+                                >
+                                  Mark Complete
+                                </button>
                               )}
                             </div>
                           )}
@@ -1518,7 +1493,7 @@ function DashboardPageContent() {
                 )}
 
                 {/* Test Player / Admin Editor Section */}
-                {selectedLesson && showTestPlayer && (
+                {selectedLesson && hasTests && (
                   <div className="mt-6 animate-fadeIn">
                     <TestPlayer
                       lessonId={selectedLesson.id}

@@ -4,7 +4,7 @@ import { api } from "@/libs/api";
 
 interface Question {
   id: string; // temp id for UI
-  type: "MCQ" | "CQ";
+  type: "MCQ" | "CQ" | "Video";
   questionText: string;
   marks: number;
   options: string[]; // for MCQ
@@ -29,7 +29,7 @@ export function TestBuilder({ courseId, lessons, onSuccess }: TestBuilderProps) 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const addQuestion = (type: "MCQ" | "CQ") => {
+  const addQuestion = (type: "MCQ" | "CQ" | "Video") => {
     setQuestions([
       ...questions,
       {
@@ -244,6 +244,12 @@ export function TestBuilder({ courseId, lessons, onSuccess }: TestBuilderProps) 
               >
                 <PlusCircle size={14} /> Add CQ
               </button>
+              <button
+                type="button" onClick={() => addQuestion("Video")}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400"
+              >
+                <PlusCircle size={14} /> Add Video
+              </button>
             </div>
           </div>
 
@@ -310,6 +316,11 @@ export function TestBuilder({ courseId, lessons, onSuccess }: TestBuilderProps) 
                 {q.type === "CQ" && (
                   <div className="pl-4">
                     <p className="text-xs text-slate-500 italic">Students will see a text area to write their answer. This requires manual evaluation.</p>
+                  </div>
+                )}
+                {q.type === "Video" && (
+                  <div className="pl-4">
+                    <p className="text-xs text-slate-500 italic">Students will be prompted to record or upload a video as their answer. This requires manual evaluation.</p>
                   </div>
                 )}
               </div>

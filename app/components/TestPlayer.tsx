@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera } from "lucide-react";
 import { api } from "@/libs/api";
+import { WebcamRecorder } from "./WebcamRecorder";
 
 interface TestPlayerProps {
   lessonId: number;
@@ -37,6 +38,7 @@ export function TestPlayer({
   const [editDraft, setEditDraft] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [expandedTestId, setExpandedTestId] = useState<number | null>(null);
+  const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTests();
@@ -256,7 +258,7 @@ export function TestPlayer({
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full">
-                    {test.questions.filter((q: any) => q.type === "MCQ").length} MCQ · {test.questions.filter((q: any) => q.type === "CQ").length} CQ
+                    {test.questions.filter((q: any) => q.type === "MCQ").length} MCQ · {test.questions.filter((q: any) => q.type === "CQ").length} CQ · {test.questions.filter((q: any) => q.type === "Video").length} Video
                   </span>
                   {expandedTestId === test.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                 </div>
@@ -399,6 +401,14 @@ export function TestPlayer({
                             Open-ended response question — learners type their answer.
                           </div>
                         )}
+
+                        {/* Video question text only — no answer box for admin */}
+                        {q.type === "Video" && !isEditing && (
+                          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs text-slate-400 italic flex items-center gap-2">
+                            <Video size={14} className="text-red-500" />
+                            Video response question — learners will upload a video.
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -420,20 +430,25 @@ export function TestPlayer({
           <ArrowLeft size={16} /> Back to lesson
         </button>
         <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-2">
-          {activeTest.title} {hasTaken && <span className="text-xs font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-2 py-1 rounded ml-2">Practice Attempt</span>}
+          {activeTest.title}
         </h3>
         {activeTest.description && <p className="text-slate-600 mb-4">{activeTest.description}</p>}
         {hasTaken && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-900 rounded-xl text-xs text-amber-800 dark:text-amber-300">
-            <span className="font-bold block mb-1">Practice Disclaimer:</span>
-            Your first attempt has already been saved. You can retake this for practice but your grade/leaderboard points will NOT be updated.
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 dark:bg-green-950/20 dark:border-green-900 rounded-xl text-xs text-green-800 dark:text-green-300">
+            <span className="font-bold block mb-1">Test Completed</span>
+            You have already submitted this test. See your results and evaluations below.
           </div>
         )}
-        <div className="flex flex-col gap-6">
-          {activeTest.questions.map((q: any, idx: number) => (
-            <div key={q.id} className="p-5 rounded-xl border border-slate-200 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700">
-              <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-1">{idx + 1}. {q.questionText}</h5>
-              <p className="text-xs text-slate-500 mb-4">Marks: {q.marks}</p>
+        
+        {!hasTaken && (
+          <>
+            <div className="flex flex-col gap-6">
+              {activeTest.questions.map((q: any, idx: number) => (
+                <div key={q.id} className="p-5 rounded-xl border border-slate-200 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700 relative">
+              <div className="absolute top-4 right-4 bg-blue-100 text-blue-700 font-bold px-3 py-1 rounded-full text-xs shadow-sm dark:bg-blue-900/40 dark:text-blue-300">
+                {q.marks} {q.marks === 1 ? 'Mark' : 'Marks'}
+              </div>
+              <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-6 pr-20">{idx + 1}. {q.questionText}</h5>
               {q.type === "MCQ" && (
                 <div className="flex flex-col gap-2">
                   {q.options.map((opt: string, oIdx: number) => (
@@ -452,15 +467,66 @@ export function TestPlayer({
                   className="w-full min-h-[120px] p-4 rounded-xl border border-slate-200 bg-white text-sm focus:border-blue-500 outline-none dark:bg-zinc-900 dark:border-zinc-700"
                 />
               )}
+              {q.type === "Video" && (
+                <div className="mt-2 border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-center gap-4 hover:border-red-400 transition bg-slate-50 dark:bg-zinc-800/30">
+                  <div className="flex-1 text-center sm:text-left">
+                    <p className="text-sm font-bold text-slate-700 dark:text-zinc-300">Provide Video Response</p>
+                    <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Record a new video or upload an existing file (MP4, WebM, MOV).</p>
+                    {answers[q.id] && (
+                      <span className="inline-flex mt-3 text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100 dark:bg-green-900/20 dark:border-green-900/30 items-center gap-1.5">
+                        <Check size={12} /> {answers[q.id].split('/').pop()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                    <button type="button" onClick={() => setRecordingQuestionId(q.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition shadow-sm">
+                      <Camera size={16} /> Record Video
+                    </button>
+                    <div className="relative flex items-center justify-center">
+                      <input 
+                        type="file" 
+                        accept="video/*" 
+                        capture="environment"
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            const file = e.target.files[0];
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            try {
+                              setAnswers({ ...answers, [q.id]: "Uploading..." });
+                              const res = await api.post('/tests/upload-test-video', formData, {
+                                headers: { 'Content-Type': 'multipart/form-data' },
+                              });
+                              if (res.data?.url) {
+                                setAnswers({ ...answers, [q.id]: res.data.url });
+                              }
+                            } catch (err) {
+                              alert("Video upload failed. Please try again.");
+                              setAnswers({ ...answers, [q.id]: "" });
+                            }
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                        id={`video-upload-${q.id}`} 
+                      />
+                      <label htmlFor={`video-upload-${q.id}`} className="flex w-full items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg text-sm font-semibold transition cursor-pointer">
+                        <UploadCloud size={16} /> Upload File
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
-        </div>
-        <div className="mt-8 flex justify-end gap-3">
-          <button onClick={() => handleSubmit(true)} disabled={isSubmitting} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition">Save Draft</button>
-          <button onClick={() => handleSubmit(false)} disabled={isSubmitting} className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition">
-            {isSubmitting ? "Submitting..." : hasTaken ? "Submit Practice Attempt" : "Submit Test"}
-          </button>
-        </div>
+            </div>
+            <div className="mt-8 flex justify-end gap-3">
+              <button onClick={() => handleSubmit(true)} disabled={isSubmitting} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition">Save Draft</button>
+              <button onClick={() => handleSubmit(false)} disabled={isSubmitting} className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition">
+                {isSubmitting ? "Submitting..." : "Submit Test"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -601,6 +667,29 @@ export function TestPlayer({
           </div>
         )}
       </div>
+      {/* Webcam Recorder Modal */}
+      {recordingQuestionId && (
+        <WebcamRecorder 
+          onCancel={() => setRecordingQuestionId(null)}
+          onUpload={async (file) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+              setAnswers({ ...answers, [recordingQuestionId]: "Uploading..." });
+              setRecordingQuestionId(null);
+              const res = await api.post('/tests/upload-test-video', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+              });
+              if (res.data?.url) {
+                setAnswers(prev => ({ ...prev, [recordingQuestionId]: res.data.url }));
+              }
+            } catch (err) {
+              alert("Video upload failed. Please try again.");
+              setAnswers(prev => ({ ...prev, [recordingQuestionId]: "" }));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
