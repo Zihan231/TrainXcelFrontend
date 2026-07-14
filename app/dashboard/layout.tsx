@@ -277,9 +277,6 @@ export default function DashboardLayout({
             <div className="flex items-center gap-5">
               <div className="flex items-center gap-3 text-slate-400 relative">
                 <NotificationBell />
-                <button className="hover:text-slate-600 dark:hover:text-zinc-200">
-                  <Gift size={20} />
-                </button>
                 <button
                   onClick={() => toggle()}
                   className="hover:text-slate-600 dark:hover:text-zinc-200"
