@@ -12,7 +12,7 @@ import {
   AlertTriangle, Activity, Trophy, PlusCircle, CheckCircle,
   Play, FileText, ExternalLink, ShieldAlert, Award, Search,
   Check, BookOpenCheck, Settings, ArrowLeft, MonitorPlay, Sparkles, Filter,
-  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2, ChevronLeft, ChevronRight
+  Maximize2, LayoutGrid, List, Trash2, Eye, EyeOff, RotateCcw, Loader2, ChevronLeft, ChevronRight, Clock
 } from "lucide-react";
 import {
   AreaChart, Area,
@@ -72,6 +72,153 @@ function getEmbedLink(url: string): string {
     console.error("Invalid URL in getEmbedLink", e);
   }
   return url;
+}
+
+function detectMaterialType(link: string): "Video" | "PDF" | "PPT" | "DOCX" {
+  if (!link) return "Video";
+  const normalized = link.toLowerCase().split('?')[0];
+  if (
+    normalized.includes("youtube.com") ||
+    normalized.includes("youtu.be") ||
+    normalized.endsWith(".mp4") ||
+    normalized.endsWith(".mov") ||
+    normalized.endsWith(".avi") ||
+    normalized.endsWith(".webm") ||
+    normalized.endsWith(".ogg")
+  ) {
+    return "Video";
+  }
+  if (normalized.endsWith(".pdf")) {
+    return "PDF";
+  }
+  if (normalized.endsWith(".ppt") || normalized.endsWith(".pptx")) {
+    return "PPT";
+  }
+  if (normalized.endsWith(".doc") || normalized.endsWith(".docx")) {
+    return "DOCX";
+  }
+  return "Video";
+}
+
+function DocxViewer({ url }: { url: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadDocx = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch document");
+        const arrayBuffer = await response.arrayBuffer();
+        const docx = await import("docx-preview");
+        if (active && containerRef.current) {
+          containerRef.current.innerHTML = "";
+          await docx.renderAsync(arrayBuffer, containerRef.current, undefined, {
+            inWrapper: true,
+            ignoreWidth: false,
+            ignoreHeight: false,
+            ignoreFonts: false,
+            breakPages: true,
+            experimental: true
+          });
+        }
+      } catch (err: any) {
+        console.error(err);
+        if (active) setError("Could not render document. It may be password protected or corrupted.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    loadDocx();
+    return () => {
+      active = false;
+    };
+  }, [url]);
+
+  return (
+    <div className="w-full h-full bg-white text-slate-800 overflow-y-auto flex flex-col p-4 relative select-text text-left">
+      {loading && (
+        <div className="absolute inset-0 bg-white/90 flex items-center justify-center z-10">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+            <span className="text-xs text-slate-500 font-semibold">Rendering Word Document...</span>
+          </div>
+        </div>
+      )}
+      {error ? (
+        <div className="flex flex-col items-center justify-center h-full text-center p-4">
+          <p className="text-sm font-bold text-red-500">{error}</p>
+          <a
+            href={url}
+            download
+            className="mt-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2"
+          >
+            Download Document instead
+          </a>
+        </div>
+      ) : (
+        <div ref={containerRef} className="w-full docx-render-container" />
+      )}
+    </div>
+  );
+}
+
+function TrashCountdown({ deletedAt }: { deletedAt: string }) {
+  const [secondsLeft, setSecondsLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const calculateSeconds = () => {
+      if (!deletedAt) return 0;
+      const deletedTime = new Date(deletedAt).getTime();
+      const purgeTime = deletedTime + 60 * 1000; // 1 minute (60 seconds)
+      const diff = Math.floor((purgeTime - Date.now()) / 1000);
+      return Math.max(0, diff);
+    };
+
+    setSecondsLeft(calculateSeconds());
+
+    const timer = setInterval(() => {
+      const remaining = calculateSeconds();
+      setSecondsLeft(remaining);
+      if (remaining <= 0) {
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [deletedAt]);
+
+  if (!deletedAt) return <span className="text-[11px] text-slate-400 font-mono">—</span>;
+
+  const dateObj = new Date(deletedAt);
+  const formattedDate = dateObj.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  return (
+    <div className="flex flex-col gap-0.5 text-left">
+      <span className="text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
+        {formattedDate}
+      </span>
+      {secondsLeft > 0 ? (
+        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1 animate-pulse">
+          <Clock size={10} /> Purges in {secondsLeft}s
+        </span>
+      ) : (
+        <span className="text-[10px] text-rose-500 font-bold">
+          Purging now...
+        </span>
+      )}
+    </div>
+  );
 }
 
 function DashboardPageContent() {
@@ -160,7 +307,21 @@ function DashboardPageContent() {
     }
     return null;
   });
+  const prevUserIdRef = useRef<string | undefined>(userId);
 
+  useEffect(() => {
+    if (prevUserIdRef.current !== undefined && prevUserIdRef.current !== userId) {
+      setSelectedCourse(null);
+      setSelectedLesson(null);
+      setCourseDetailsTab("player");
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("trainxcel_selected_course");
+        sessionStorage.removeItem("trainxcel_selected_lesson");
+        sessionStorage.removeItem("trainxcel_course_details_tab");
+      }
+    }
+    prevUserIdRef.current = userId;
+  }, [userId]);
   useEffect(() => {
     if (selectedCourse) {
       sessionStorage.setItem("trainxcel_selected_course", JSON.stringify(selectedCourse));
@@ -205,7 +366,7 @@ function DashboardPageContent() {
   
   // Tab within the simulated Course Details page
 
-  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "settings">("player");
+  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "student-marks" | "settings">("player");
 
   const [catalogSearch, setCatalogSearch] = useState("");
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<number | null>(null);
@@ -264,6 +425,8 @@ function DashboardPageContent() {
   const [newLessonTitle, setNewLessonTitle] = useState("");
   const [newLessonType, setNewLessonType] = useState("Video");
   const [newLessonLink, setNewLessonLink] = useState("");
+  const [lessonInputMode, setLessonInputMode] = useState<"link" | "upload">("link");
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [lessonFormError, setLessonFormError] = useState("");
   const [lessonFormSuccess, setLessonFormSuccess] = useState("");
 
@@ -278,6 +441,29 @@ function DashboardPageContent() {
   const [employeeFormError, setEmployeeFormError] = useState("");
   const [employeeFormSuccess, setEmployeeFormSuccess] = useState("");
   const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
+
+  // Student Marks view tab states
+  const [studentMarks, setStudentMarks] = useState<any[]>([]);
+  const [isMarksLoading, setIsMarksLoading] = useState(false);
+
+  const loadStudentMarks = useCallback(async () => {
+    if (!selectedLesson) return;
+    setIsMarksLoading(true);
+    try {
+      const res = await api.get(`/tests/lesson/${selectedLesson.id}/submissions`);
+      setStudentMarks(res.data || []);
+    } catch (e) {
+      console.error("Failed to load student marks", e);
+    } finally {
+      setIsMarksLoading(false);
+    }
+  }, [selectedLesson]);
+
+  useEffect(() => {
+    if (courseDetailsTab === "student-marks" && selectedLesson) {
+      loadStudentMarks();
+    }
+  }, [courseDetailsTab, selectedLesson, loadStudentMarks]);
 
   // Loading indicators for actions
   const [actionLoading, setActionLoading] = useState(false);
@@ -655,9 +841,15 @@ function DashboardPageContent() {
   };
 
   const handleUpdateCourseStatus = (courseId: string, status: string) => {
+    const isInactive = status === "inactive" || status === "draft"; // setting to inactive/draft has similar visibility rules
+    const title = status === "active" ? "Set Course to Active" : "Set Course to Inactive";
+    const description = status === "active"
+      ? "Confirming change to ACTIVE status. This course will become visible in the catalog, enabling learners to view, register, and enroll in it."
+      : "Warning: Setting this course to Inactive/Draft will hide it from the learner course catalog. Active enrollments will be locked, meaning current learners will no longer see this course in their dashboard or be able to resume its lessons. You can set it to active again at any time to restore access.";
+
     triggerConfirm(
-      "Update Course Status",
-      `Are you sure you want to change this course status to "${status.toUpperCase()}"? This affects who can view and enroll in it.`,
+      title,
+      description,
       async () => {
         try {
           await api.patch(`/courses/${courseId}/status`, { status });
@@ -672,8 +864,55 @@ function DashboardPageContent() {
           alert(err.message);
         }
       },
-      "Update Status"
+      status === "active" ? "Set Active" : "Set Inactive"
     );
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileNameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+    if (!newLessonTitle.trim()) {
+      setNewLessonTitle(fileNameWithoutExt);
+    }
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    let type = "PDF";
+    if (["mp4", "mov", "avi", "webm", "ogg"].includes(ext || "")) {
+      type = "Video";
+    } else if (["ppt", "pptx"].includes(ext || "")) {
+      type = "PPT";
+    } else if (["doc", "docx"].includes(ext || "")) {
+      type = "DOCX";
+    } else if (ext === "pdf") {
+      type = "PDF";
+    }
+    setNewLessonType(type);
+
+    setIsUploadingFile(true);
+    setLessonFormError("");
+    setLessonFormSuccess("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await api.post("/courses/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      if (res.data?.url) {
+        setNewLessonLink(res.data.url);
+        setLessonFormSuccess("File uploaded and linked successfully!");
+        setTimeout(() => {
+          setLessonFormSuccess(prev => prev === "File uploaded and linked successfully!" ? "" : prev);
+        }, 10000);
+      }
+    } catch (err: any) {
+      setLessonFormError(err.response?.data?.message || "File upload failed.");
+    } finally {
+      setIsUploadingFile(false);
+    }
   };
 
   const handleAddLesson = (e: React.FormEvent) => {
@@ -694,13 +933,17 @@ function DashboardPageContent() {
       async () => {
         setIsDeployingLesson(true);
         try {
+          const typeToSubmit = lessonInputMode === "link" ? detectMaterialType(newLessonLink) : newLessonType;
           await addLesson(selectedCourse.courseId, {
             title: newLessonTitle,
-            materialType: newLessonType as "Video" | "PDF" | "PPT",
+            materialType: typeToSubmit as "Video" | "PDF" | "PPT" | "DOCX",
             materialLink: newLessonLink,
             status: "Active",
           });
           setLessonFormSuccess("Lesson added successfully!");
+          setTimeout(() => {
+            setLessonFormSuccess(prev => prev === "Lesson added successfully!" ? "" : prev);
+          }, 10000);
           setNewLessonTitle("");
           setNewLessonLink("");
           await loadCourseLessons(selectedCourse.courseId);
@@ -791,6 +1034,9 @@ function DashboardPageContent() {
       async () => {
         try {
           await softDeleteLesson(courseId, lessonId);
+          if (selectedLesson && (selectedLesson.lessonId === lessonId || String(selectedLesson.id) === String(lessonId))) {
+            setSelectedLesson(null);
+          }
           await loadCourseLessons(courseId);
           await fetchCourses();
         } catch (err: any) {
@@ -1001,16 +1247,49 @@ function DashboardPageContent() {
                   {selectedLesson ? (
                     <div className="w-full h-full relative">
                       {selectedLesson.materialType === "Video" ? (
-                        <iframe
-                          src={getEmbedLink(selectedLesson.materialLink)}
-                          className="w-full h-full border-0"
-                          allowFullScreen
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          title={selectedLesson.title}
+                        selectedLesson.materialLink.includes("youtube.com") || selectedLesson.materialLink.includes("youtu.be") ? (
+                          <iframe
+                            src={getEmbedLink(selectedLesson.materialLink)}
+                            className="w-full h-full border-0"
+                            allowFullScreen
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            title={selectedLesson.title}
+                          />
+                        ) : (
+                          <video
+                            src={selectedLesson.materialLink.startsWith("/") ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` : selectedLesson.materialLink}
+                            className="w-full h-full bg-black object-contain"
+                            controls
+                          />
+                        )
+                      ) : selectedLesson.materialType === "PPT" ? (
+                        selectedLesson.materialLink.startsWith("/") || selectedLesson.materialLink.includes("localhost") || selectedLesson.materialLink.includes("127.0.0.1") ? (
+                          <div className="flex flex-col items-center justify-center p-8 bg-zinc-900 text-white w-full h-full text-center">
+                            <MonitorPlay size={48} className="text-blue-500 mb-3 animate-pulse" />
+                            <h4 className="font-bold text-sm text-slate-100">PowerPoint Presentation Slide</h4>
+                            <p className="text-[11px] text-zinc-400 max-w-sm mt-1 mb-4">This lesson contains PowerPoint slides. Click the button below to download and view the presentation slides.</p>
+                            <a
+                              href={selectedLesson.materialLink.startsWith("/") ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` : selectedLesson.materialLink}
+                              download
+                              className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-2.5 transition shadow-md animate-fadeIn"
+                            >
+                              Download PPT Presentation
+                            </a>
+                          </div>
+                        ) : (
+                          <iframe
+                            src={`https://docs.google.com/gview?url=${encodeURIComponent(selectedLesson.materialLink)}&embedded=true`}
+                            className="w-full h-full border-0 bg-white"
+                            title={selectedLesson.title}
+                          />
+                        )
+                      ) : selectedLesson.materialType === "DOCX" ? (
+                        <DocxViewer
+                          url={selectedLesson.materialLink.startsWith("/") ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` : selectedLesson.materialLink}
                         />
                       ) : (
                         <iframe
-                          src={selectedLesson.materialLink}
+                          src={selectedLesson.materialLink.startsWith("/") ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` : selectedLesson.materialLink}
                           className="w-full h-full border-0 bg-white"
                           title={selectedLesson.title}
                         />
@@ -1053,6 +1332,11 @@ function DashboardPageContent() {
                           Playing: {selectedLesson.materialType}
                         </span>
                         <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50 mt-2">{selectedLesson.title}</h3>
+                        {selectedLesson.description && (
+                          <p className="mt-2 text-xs text-slate-500 dark:text-zinc-400 leading-relaxed max-w-2xl">
+                            {selectedLesson.description}
+                          </p>
+                        )}
                       </div>
 
                       {selectedLesson && (
@@ -1165,6 +1449,12 @@ function DashboardPageContent() {
                       >
                         Course Settings
                       </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("student-marks")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "student-marks" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Student Marks
+                      </button>
                     </div>
 
                     <div className="p-1">
@@ -1194,31 +1484,60 @@ function DashboardPageContent() {
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs font-semibold text-slate-500">Lesson Title</label>
                               <input
-                                type="text" value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)}
+                                type="text" value={newLessonTitle || ""} onChange={(e) => setNewLessonTitle(e.target.value)}
                                 placeholder="e.g. Introduction to App Router"
                                 className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
                               />
                             </div>
-                            <div className="flex grid-cols-2 gap-3">
-                              <div className="flex-1 flex flex-col gap-1.5">
-                                <label className="text-xs font-semibold text-slate-500">Material Type</label>
-                                <select
-                                  value={newLessonType} onChange={(e) => setNewLessonType(e.target.value)}
-                                  className="rounded-xl border border-slate-200 bg-white p-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">Material Source</label>
+                              <div className="flex bg-slate-105 p-1 rounded-xl dark:bg-zinc-805/50 w-fit border border-slate-200 dark:border-zinc-800">
+                                <button
+                                  type="button"
+                                  onClick={() => setLessonInputMode("link")}
+                                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${lessonInputMode === "link" ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-300"}`}
                                 >
-                                  <option value="Video">Video Player Link</option>
-                                  <option value="PDF">PDF document</option>
-                                  <option value="PPT">PPT presentation slide</option>
-                                </select>
+                                  Direct Link
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setLessonInputMode("upload")}
+                                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${lessonInputMode === "upload" ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-300"}`}
+                                >
+                                  Upload File
+                                </button>
                               </div>
-                              <div className="flex-1 flex flex-col gap-1.5">
-                                <label className="text-xs font-semibold text-slate-500">Material Link</label>
-                                <input
-                                  type="text" value={newLessonLink} onChange={(e) => setNewLessonLink(e.target.value)}
-                                  placeholder="https://example.com/materials/..."
-                                  className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
-                                />
-                              </div>
+                            </div>
+
+                            <div className="flex flex-col gap-3">
+                              {lessonInputMode === "link" ? (
+                                <div className="flex flex-col gap-1.5 w-full">
+                                  <label className="text-xs font-semibold text-slate-500">Material Link</label>
+                                  <input
+                                    key="lesson-link-input"
+                                    type="text" value={newLessonLink || ""} onChange={(e) => setNewLessonLink(e.target.value)}
+                                    placeholder="https://example.com/materials/..."
+                                    className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 w-full"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1.5 w-full">
+                                  <label className="text-xs font-semibold text-slate-500">Upload File (VDO/PDF/PPT/DOCX)</label>
+                                  <input
+                                    key="lesson-file-input"
+                                    type="file"
+                                    accept="video/*,.pdf,.ppt,.pptx,.doc,.docx"
+                                    onChange={handleFileUpload}
+                                    className="text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-200 cursor-pointer w-full"
+                                  />
+                                  {isUploadingFile && (
+                                    <span className="text-[10px] text-blue-500 animate-pulse mt-1">Uploading file to server...</span>
+                                  )}
+                                  {newLessonLink && !isUploadingFile && (
+                                    <span className="text-[10px] text-green-600 truncate mt-1">Uploaded path: {newLessonLink}</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <button
                               type="submit" disabled={actionLoading}
@@ -1282,20 +1601,68 @@ function DashboardPageContent() {
                           <div className="flex flex-col gap-3">
                             <span className="text-xs text-slate-400">Toggle course visibility to users:</span>
                             <div className="flex gap-2">
-                              <button
-                                onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "active")}
-                                className={`rounded-xl px-4 py-2 text-xs font-semibold border transition ${selectedCourse.status === "active" ? "bg-green-500 text-white border-transparent" : "border-slate-200 dark:border-zinc-800 text-slate-600"}`}
-                              >
-                                Set Active
-                              </button>
-                              <button
-                                onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "draft")}
-                                className={`rounded-xl px-4 py-2 text-xs font-semibold border transition ${selectedCourse.status === "draft" ? "bg-zinc-500 text-white border-transparent" : "border-slate-200 dark:border-zinc-800 text-slate-600"}`}
-                              >
-                                Set Draft
-                              </button>
+                              {selectedCourse.status === "active" ? (
+                                <button
+                                  onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "inactive")}
+                                  className="rounded-xl px-4 py-2 text-xs font-semibold border border-transparent bg-red-600 text-white transition hover:bg-red-700"
+                                >
+                                  Set Inactive
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "active")}
+                                  className="rounded-xl px-4 py-2 text-xs font-semibold border border-transparent bg-green-600 text-white transition hover:bg-green-700"
+                                >
+                                  Set Active
+                                </button>
+                              )}
                             </div>
                           </div>
+                        </div>
+                      )}
+
+                      {courseDetailsTab === "student-marks" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Student Marks - {selectedLesson?.title || "No Lesson Selected"}</h4>
+                          {!selectedLesson ? (
+                            <p className="text-xs text-slate-400">Please select a lesson from the playlist to view student marks.</p>
+                          ) : isMarksLoading ? (
+                            <div className="flex flex-col items-center justify-center py-10 gap-3">
+                              <Loader2 size={24} className="text-blue-500 animate-spin" />
+                              <span className="text-xs text-slate-400 font-medium animate-pulse">Loading marks...</span>
+                            </div>
+                          ) : studentMarks.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-4 text-center">No student test submissions found for this lesson.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left">
+                                <thead className="bg-slate-50 dark:bg-zinc-800/50">
+                                  <tr>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Student Name</th>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Email</th>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">User ID</th>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Status</th>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-right">Marks</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {studentMarks.map((sub: any) => (
+                                    <tr key={sub.id} className="border-b border-slate-100 dark:border-zinc-800">
+                                      <td className="py-3 px-4 text-sm font-semibold text-slate-900 dark:text-zinc-100">{sub.user?.name}</td>
+                                      <td className="py-3 px-4 text-sm text-slate-500 dark:text-zinc-400">{sub.user?.email}</td>
+                                      <td className="py-3 px-4 text-sm font-mono text-slate-500 dark:text-zinc-400">{sub.user?.userId}</td>
+                                      <td className="py-3 px-4 text-xs">
+                                        <span className={`inline-block rounded-full px-2.5 py-0.5 font-bold uppercase tracking-wider ${sub.status === 'Evaluated' ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'}`}>
+                                          {sub.status}
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-sm font-bold text-slate-900 dark:text-zinc-100 text-right">{sub.marksObtained}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2888,6 +3255,9 @@ function DashboardPageContent() {
         "This will permanently remove the lesson from the database. This cannot be undone.",
         async () => {
           await hardDeleteLesson(courseId, lessonId);
+          if (selectedLesson && (selectedLesson.lessonId === lessonId || String(selectedLesson.id) === String(lessonId))) {
+            setSelectedLesson(null);
+          }
           await loadTrash();
           await fetchCourses();
           await loadCourseLessons(courseId);
@@ -3002,6 +3372,7 @@ function DashboardPageContent() {
                 <tr className="border-b border-slate-100 text-slate-400 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30 font-bold text-xs uppercase">
                   <th className="py-2.5 px-4">Type</th>
                   <th className="py-2.5 px-4">Details</th>
+                  <th className="py-2.5 px-4">Deleted At & Purge Counter</th>
                   <th className="py-2.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -3026,6 +3397,9 @@ function DashboardPageContent() {
                             {item.type === "course" ? `CID: ${item.courseId}` : `CID: ${item.courseId} · LES: ${item.lessonId}`}
                           </span>
                         </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <TrashCountdown deletedAt={item.deletedAt} />
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">

@@ -32,3 +32,18 @@ Today's Work Summary (TrainXcel)
 - Implemented the logic for 'Evaluate CQ' functionality.
 - Clarified how learners can view their marks and how instructors evaluate Creative Questions.
 - Laid the groundwork for displaying additional context in test results (Pending User Feedback).
+
+8. Lesson File Uploads & Material View Box Fix
+- Added toggle between Direct Link and Upload File for lesson creation.
+- Automatically sets the lesson title to the uploaded file name.
+- Fixed the video player to use a native HTML5 video player instead of iframe for uploaded/direct videos.
+- Displays lesson descriptions in the player view.
+
+9. Course Status Settings & Student Marks View
+- Added Set Active / Set Inactive buttons with descriptive confirmation warning modal in Course Settings.
+- Implemented a 'Student Marks' tab for admins/employees displaying name, email, user ID, status, and scores for a lesson's tests.
+
+10. DOCX Support
+- Added DOCX as a valid material type.
+- Updated file uploader accept types to allow doc/docx.
+- Implemented DOCX player view (with local file download box and public URL iframe viewer).

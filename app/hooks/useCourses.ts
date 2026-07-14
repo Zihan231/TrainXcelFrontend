@@ -116,7 +116,7 @@ export function useCourses() {
       lessonData: {
         title: string;
         description?: string;
-        materialType: "Video" | "PDF" | "PPT";
+        materialType: "Video" | "PDF" | "PPT" | "DOCX";
         materialLink: string;
         status?: string;
       }

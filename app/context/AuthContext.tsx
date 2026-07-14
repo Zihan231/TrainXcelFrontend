@@ -60,6 +60,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await api.post("/auth/logout");
       setUser(null);
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("trainxcel_selected_course");
+        sessionStorage.removeItem("trainxcel_selected_lesson");
+        sessionStorage.removeItem("trainxcel_course_details_tab");
+      }
       router.push("/");
     } catch (error) {
       console.error("Logout failed:", error);
