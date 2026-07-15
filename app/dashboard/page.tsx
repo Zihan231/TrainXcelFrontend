@@ -345,6 +345,9 @@ function DashboardPageContent() {
   const [lessonsLoading, setLessonsLoading] = useState(false);
   const [showTestPlayer, setShowTestPlayer] = useState(false);
   const [hasTests, setHasTests] = useState(false);
+  const [standaloneExams, setStandaloneExams] = useState<any[]>([]);
+  const [standaloneExamsLoading, setStandaloneExamsLoading] = useState(false);
+  const [selectedStandaloneExam, setSelectedStandaloneExam] = useState<any | null>(null);
   const [recentlyViewed, setRecentlyViewed] = useState<Course[]>([]);
   const [isNextLessonTransition, setIsNextLessonTransition] = useState(false);
 
@@ -365,6 +368,28 @@ function DashboardPageContent() {
     };
     checkTests();
   }, [selectedLesson]);
+
+  // Fetch standalone exams for selected course
+  useEffect(() => {
+    const fetchStandaloneExams = async () => {
+      if (!selectedCourse?.courseId) {
+        setStandaloneExams([]);
+        return;
+      }
+      setStandaloneExamsLoading(true);
+      try {
+        const res = await api.get(`/tests/standalone/${selectedCourse.courseId}`);
+        setStandaloneExams(res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch standalone exams:", err);
+        setStandaloneExams([]);
+      } finally {
+        setStandaloneExamsLoading(false);
+      }
+    };
+    fetchStandaloneExams();
+    setSelectedStandaloneExam(null);
+  }, [selectedCourse?.courseId]);
 
   
   // Tab within the simulated Course Details page
@@ -1513,6 +1538,23 @@ function DashboardPageContent() {
                   </div>
                 )}
 
+                {/* Standalone Exam Player */}
+                {selectedStandaloneExam && (
+                  <div className="mt-6 animate-fadeIn">
+                    <TestPlayer
+                      externalTest={selectedStandaloneExam}
+                      isAdmin={false}
+                      onSuccess={async () => {
+                        await loadLearnerProgress();
+                        if (selectedCourse) {
+                          await loadCourseLessons(selectedCourse.courseId);
+                        }
+                      }}
+                      onCancel={() => setSelectedStandaloneExam(null)}
+                    />
+                  </div>
+                )}
+
                 {/* Admin / Employee Management Area Tabs */}
                 {isAdminOrEmployee && (
                   <div className="flex flex-col gap-4">
@@ -1674,7 +1716,6 @@ function DashboardPageContent() {
                             setCourseDetailsTab("player");
                             if (selectedCourse) {
                               const freshLessons = await loadCourseLessons(selectedCourse.courseId);
-                              // Navigate to the lesson the test was just added to
                               if (createdForLessonId && freshLessons?.length) {
                                 const targetLesson = freshLessons.find(
                                   (l: any) => l.id === createdForLessonId
@@ -1684,12 +1725,16 @@ function DashboardPageContent() {
                                   setShowTestPlayer(true);
                                 }
                               } else if (selectedLesson) {
-                                // Fallback: refresh hasTests for currently selected lesson
                                 try {
                                   const res = await api.get(`/tests/lesson/${selectedLesson.id}`);
                                   setHasTests(res.data && res.data.length > 0);
                                 } catch {}
                               }
+                              // Refresh standalone exams list
+                              try {
+                                const res = await api.get(`/tests/standalone/${selectedCourse.courseId}`);
+                                setStandaloneExams(res.data || []);
+                              } catch {}
                             }
                           }}
                         />
@@ -1923,6 +1968,47 @@ function DashboardPageContent() {
                     </div>
                   );
                 })
+              )}
+              
+              {/* Standalone Exams Section */}
+              {!isAdminOrEmployee && (
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800">
+                  <h4 className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                    Standalone Exams
+                  </h4>
+                  {standaloneExamsLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 size={16} className="text-blue-500 animate-spin" />
+                    </div>
+                  ) : standaloneExams.length === 0 ? (
+                    <p className="text-[10px] text-slate-400 text-center py-2">No standalone exams for this course.</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {standaloneExams.map((exam: any) => {
+                        const isSelected = selectedStandaloneExam?.id === exam.id;
+                        return (
+                          <div
+                            key={exam.id}
+                            onClick={() => setSelectedStandaloneExam(exam)}
+                            className={`flex items-center gap-3 p-2.5 rounded-xl border cursor-pointer transition ${
+                              isSelected
+                                ? "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800"
+                                : "bg-slate-50 border-transparent hover:border-slate-200 dark:hover:bg-zinc-800/40"
+                            }`}
+                          >
+                            <div className="h-10 w-10 shrink-0 bg-amber-100 dark:bg-amber-900/40 rounded-lg flex items-center justify-center text-amber-700 dark:text-amber-400">
+                              <Clock size={18} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-900 dark:text-zinc-100 line-clamp-1">{exam.title}</p>
+                              <p className="text-[9px] text-slate-400 font-mono mt-0.5">{exam.questions?.length || 0} questions · Timed Exam</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

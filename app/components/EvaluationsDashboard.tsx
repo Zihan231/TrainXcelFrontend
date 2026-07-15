@@ -248,6 +248,18 @@ export function EvaluationsDashboard() {
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50">{selectedSubmission.test.title}</h3>
                   <p className="text-slate-500 mt-1 text-sm">Submitted by <span className="font-medium text-slate-700 dark:text-zinc-300">{selectedSubmission.user.name}</span> on {new Date(selectedSubmission.submittedAt).toLocaleString()}</p>
+                  <div className="flex flex-wrap gap-2 mt-3 items-center text-xs">
+                    {(selectedSubmission.test.lesson?.course || selectedSubmission.test.course) && (
+                      <span className="font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">
+                        Course: {selectedSubmission.test.lesson?.course?.title || selectedSubmission.test.course?.title || 'Unknown'}
+                      </span>
+                    )}
+                    {selectedSubmission.test.lesson && (
+                      <span className="font-semibold text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-2 py-1 rounded">
+                        Lesson: {selectedSubmission.test.lesson.title}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
