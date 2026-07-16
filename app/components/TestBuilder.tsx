@@ -14,12 +14,14 @@ interface Question {
 interface TestBuilderProps {
   courseId: number;
   lessons: Array<{ id: number; title: string }>;
+  initialLessonId?: number;
   onSuccess?: (lessonId?: number) => void;
 }
 
 export function TestBuilder({
   courseId,
   lessons,
+  initialLessonId,
   onSuccess,
 }: TestBuilderProps) {
   const [title, setTitle] = useState("");
@@ -27,7 +29,7 @@ export function TestBuilder({
   const [testType, setTestType] = useState<"Lesson" | "Course" | "Standalone">(
     "Lesson",
   );
-  const [lessonId, setLessonId] = useState<number | "">("");
+  const [lessonId, setLessonId] = useState<number | "">(initialLessonId || "");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);

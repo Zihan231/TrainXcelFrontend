@@ -1719,6 +1719,7 @@ function DashboardPageContent() {
                         <TestBuilder
                           courseId={selectedCourse.id}
                           lessons={lessons}
+                          initialLessonId={selectedLesson?.id}
                           onSuccess={async (createdForLessonId?: number) => {
                             setCourseDetailsTab("player");
                             if (selectedCourse) {
