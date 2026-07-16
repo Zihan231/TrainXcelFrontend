@@ -306,7 +306,7 @@ export function TestPlayer({
       <div className="flex flex-col gap-4 animate-fadeIn">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50">
-            Tests for this Lesson
+            {externalTest ? "Standalone Exam" : "Tests for this Lesson"}
             <span className="ml-2 text-xs font-normal text-slate-400">({tests.length} test{tests.length !== 1 ? "s" : ""})</span>
           </h3>
         </div>
@@ -743,7 +743,7 @@ export function TestPlayer({
                     );
                   })()}
                   <div className="flex gap-2">
-                    {(!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video") || submissions[test.id]?.status !== "Pending Evaluation") && (
+                    {(!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video") || submissions[test.id]?.status !== "Pending Evaluation") && !(isStandalone && examStatus !== 'active') && (
                       <button 
                         onClick={() => handleStartTest(test)} 
                         disabled={isStandalone && examStatus === 'scheduled'}

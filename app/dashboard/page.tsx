@@ -225,6 +225,7 @@ function TrashCountdown({ deletedAt }: { deletedAt: string }) {
 function DashboardPageContent() {
   const { name, role, email, userId } = useUser();
   const playerRef = useRef<HTMLDivElement>(null);
+  const standalonePlayerRef = useRef<HTMLDivElement>(null);
 
   const toggleFullScreen = () => {
     if (playerRef.current) {
@@ -390,6 +391,12 @@ function DashboardPageContent() {
     fetchStandaloneExams();
     setSelectedStandaloneExam(null);
   }, [selectedCourse?.courseId]);
+
+  useEffect(() => {
+    if (selectedStandaloneExam && standalonePlayerRef.current) {
+      standalonePlayerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedStandaloneExam]);
 
   
   // Tab within the simulated Course Details page
@@ -1540,10 +1547,10 @@ function DashboardPageContent() {
 
                 {/* Standalone Exam Player */}
                 {selectedStandaloneExam && (
-                  <div className="mt-6 animate-fadeIn">
+                  <div className="mt-6 animate-fadeIn" ref={standalonePlayerRef}>
                     <TestPlayer
                       externalTest={selectedStandaloneExam}
-                      isAdmin={false}
+                      isAdmin={isAdminOrEmployee}
                       onSuccess={async () => {
                         await loadLearnerProgress();
                         if (selectedCourse) {
@@ -1969,11 +1976,11 @@ function DashboardPageContent() {
                   );
                 })
               )}
-              
-              {/* Standalone Exams Section */}
-              {!isAdminOrEmployee && (
-                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800">
-                  <div className="flex items-center justify-between mb-2">
+            </div>
+            
+            {/* Standalone Exams Section */}
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800">
+                <div className="flex items-center justify-between mb-2">
                     <h4 className="font-bold text-sm text-slate-900 dark:text-zinc-50">Standalone Exams</h4>
                     <span className="text-[10px] font-bold text-slate-400 uppercase">{standaloneExams.length} Items</span>
                   </div>
@@ -2015,6 +2022,12 @@ function DashboardPageContent() {
                                   <Award size={10} /> Timed Exam
                                 </span>
                               </div>
+                              {(exam.startTime || exam.endTime) && (
+                                <div className="flex flex-col gap-0.5 mt-1 text-[9px] text-slate-500 font-medium">
+                                  {exam.startTime && <span>Starts: {new Date(exam.startTime).toLocaleString()}</span>}
+                                  {exam.endTime && <span>Ends: {new Date(exam.endTime).toLocaleString()}</span>}
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -2022,8 +2035,6 @@ function DashboardPageContent() {
                     </div>
                   )}
                 </div>
-              )}
-            </div>
           </div>
         </div>
       </div>
