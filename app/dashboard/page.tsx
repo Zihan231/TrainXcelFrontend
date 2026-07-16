@@ -1973,15 +1973,17 @@ function DashboardPageContent() {
               {/* Standalone Exams Section */}
               {!isAdminOrEmployee && (
                 <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800">
-                  <h4 className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
-                    Standalone Exams
-                  </h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-bold text-sm text-slate-900 dark:text-zinc-50">Standalone Exams</h4>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{standaloneExams.length} Items</span>
+                  </div>
                   {standaloneExamsLoading ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 size={16} className="text-blue-500 animate-spin" />
+                    <div className="flex flex-col items-center justify-center py-10 gap-3">
+                      <Loader2 size={24} className="text-blue-500 animate-spin" />
+                      <span className="text-xs text-slate-400 font-medium animate-pulse">Loading exams...</span>
                     </div>
                   ) : standaloneExams.length === 0 ? (
-                    <p className="text-[10px] text-slate-400 text-center py-2">No standalone exams for this course.</p>
+                    <div className="text-center py-8 text-xs text-slate-400">No standalone exams for this course.</div>
                   ) : (
                     <div className="flex flex-col gap-2">
                       {standaloneExams.map((exam: any) => {
@@ -1990,18 +1992,29 @@ function DashboardPageContent() {
                           <div
                             key={exam.id}
                             onClick={() => setSelectedStandaloneExam(exam)}
-                            className={`flex items-center gap-3 p-2.5 rounded-xl border cursor-pointer transition ${
+                            className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border cursor-pointer ${
                               isSelected
-                                ? "bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800"
-                                : "bg-slate-50 border-transparent hover:border-slate-200 dark:hover:bg-zinc-800/40"
+                                ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/40 dark:text-blue-400"
+                                : "hover:bg-slate-50 border-transparent dark:hover:bg-zinc-800/40"
                             }`}
                           >
-                            <div className="h-10 w-10 shrink-0 bg-amber-100 dark:bg-amber-900/40 rounded-lg flex items-center justify-center text-amber-700 dark:text-amber-400">
-                              <Clock size={18} />
+                            {/* Exam Thumbnail Mockup */}
+                            <div className="relative h-14 w-20 shrink-0 bg-slate-950 rounded-lg overflow-hidden flex items-center justify-center text-white border border-slate-800">
+                              <Clock size={16} className="text-blue-500 fill-blue-500/20 group-hover:scale-110 transition" />
+                              <span className="absolute bottom-1 right-1 bg-black/80 text-[8px] font-mono px-1 rounded text-slate-400">
+                                Exam
+                              </span>
                             </div>
+
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold text-slate-900 dark:text-zinc-100 line-clamp-1">{exam.title}</p>
-                              <p className="text-[9px] text-slate-400 font-mono mt-0.5">{exam.questions?.length || 0} questions · Timed Exam</p>
+                              <p className="text-xs font-bold text-slate-900 line-clamp-2 dark:text-zinc-100" title={exam.title}>{exam.title}</p>
+                              <p className="text-[9px] text-slate-400 font-mono mt-0.5">{exam.questions?.length || 0} questions</p>
+
+                              <div className="flex items-center gap-1.5 mt-1.5">
+                                <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500">
+                                  <Award size={10} /> Timed Exam
+                                </span>
+                              </div>
                             </div>
                           </div>
                         );

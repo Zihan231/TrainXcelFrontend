@@ -92,6 +92,18 @@ export function EvaluationsDashboard() {
     return `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${url}`;
   };
 
+  const getSnapshotUrls = (sub: any): string[] => {
+    const test = sub?.test;
+    if (!test) return [];
+    const folderId = test.lesson?.id ?? test.id;
+    const base = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/uploads/VdoEva/${folderId}/snap/snapshot_`;
+    const urls: string[] = [];
+    for (let i = 1; i <= 20; i++) {
+      urls.push(`${base}${String(i).padStart(3, "0")}.jpg`);
+    }
+    return urls;
+  };
+
   if (loading) return <div className="p-8 text-center text-slate-500">Loading evaluations...</div>;
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
 
@@ -285,24 +297,44 @@ export function EvaluationsDashboard() {
                       </div>
                     </div>
                     
-                    <div className="mb-5 pl-10">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Student's Answer</label>
-                      {ans.question.type === "Video" ? (
-                        <div className="rounded-xl overflow-hidden bg-black flex justify-center border border-slate-200 dark:border-zinc-700 shadow-inner">
-                          {ans.providedAnswer ? (
-                            <video 
-                              controls 
-                              src={getMediaUrl(ans.providedAnswer)} 
-                              className="w-full max-h-[300px] object-contain"
-                            />
-                          ) : (
-                            <div className="py-12 flex flex-col items-center justify-center text-slate-500">
-                              <Video size={32} className="mb-2 opacity-50" />
-                              <span className="text-sm italic">No video provided.</span>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
+                     <div className="mb-5 pl-10">
+                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Student's Answer</label>
+                       {ans.question.type === "Video" ? (
+                         <div className="flex flex-col gap-4">
+                           <div className="rounded-xl overflow-hidden bg-black flex justify-center border border-slate-200 dark:border-zinc-700 shadow-inner">
+                             {ans.providedAnswer ? (
+                               <video 
+                                 controls 
+                                 src={getMediaUrl(ans.providedAnswer)} 
+                                 className="w-full max-h-[300px] object-contain"
+                               />
+                             ) : (
+                               <div className="py-12 flex flex-col items-center justify-center text-slate-500">
+                                 <Video size={32} className="mb-2 opacity-50" />
+                                 <span className="text-sm italic">No video provided.</span>
+                               </div>
+                             )}
+                           </div>
+                           <div className="flex flex-col gap-2">
+                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Extracted Snapshots</label>
+                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                               {getSnapshotUrls(selectedSubmission).map((src, idx) => (
+                                 <img
+                                   key={idx}
+                                   src={src}
+                                   alt={`snapshot-${idx + 1}`}
+                                   className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 object-cover w-full h-24"
+                                   loading="lazy"
+                                   onError={(e) => {
+                                     const target = e.target as HTMLImageElement;
+                                     target.style.display = "none";
+                                   }}
+                                 />
+                               ))}
+                             </div>
+                           </div>
+                         </div>
+                       ) : (
                         <div className="p-4 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 text-sm whitespace-pre-wrap shadow-sm">
                           {ans.providedAnswer || <span className="text-slate-400 italic">No answer provided.</span>}
                         </div>
