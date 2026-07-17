@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
+import toast from "react-hot-toast";
 
 interface TestPlayerProps {
   lessonId?: number;
@@ -36,6 +37,11 @@ export function TestPlayer({
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [examStatus, setExamStatus] = useState<'scheduled' | 'active' | 'completed'>('active');
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const answersRef = React.useRef(answers);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
 
   // Admin edit state
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
@@ -101,12 +107,15 @@ export function TestPlayer({
     return () => clearInterval(interval);
   }, [externalTest, isAdmin]);
 
+  const hasAutoSubmitted = React.useRef(false);
+
   // Auto-submit when timer expires for standalone exams
   useEffect(() => {
     if (!externalTest || isAdmin || examStatus !== 'completed') return;
     if (!activeTest || activeTest.id !== externalTest.id) return;
-    if (submissions[activeTest.id]) return; // Already submitted
+    if (submissions[activeTest.id] || hasAutoSubmitted.current) return;
 
+    hasAutoSubmitted.current = true;
     const timer = setTimeout(() => {
       handleSubmit(false);
     }, 1000);
@@ -169,7 +178,7 @@ export function TestPlayer({
       setEditingQuestionId(null);
       setEditDraft({});
     } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to save question.");
+      toast.error(err.response?.data?.message || "Failed to save question.");
     } finally {
       setSavingEdit(false);
     }
@@ -208,6 +217,7 @@ export function TestPlayer({
   // ─── Learner: test taking ────────────────────────────────────────────────────
   const handleStartTest = (test: any) => {
     setActiveTest(test);
+    hasAutoSubmitted.current = false;
     const initialAnswers: Record<string, any> = {};
     test.questions.forEach((q: any) => {
       initialAnswers[q.id] = q.type === "MCQ" ? [] : "";
@@ -227,9 +237,10 @@ export function TestPlayer({
   const handleSubmit = async (isDraft: boolean) => {
     setIsSubmitting(true);
     try {
-      const formattedAnswers = Object.keys(answers).map(qId => ({
+      const currentAnswers = answersRef.current;
+      const formattedAnswers = Object.keys(currentAnswers).map(qId => ({
         questionId: Number(qId),
-        providedAnswer: answers[qId],
+        providedAnswer: currentAnswers[qId],
       }));
       await api.post("/tests/submit", {
         testId: activeTest.id,
@@ -242,10 +253,10 @@ export function TestPlayer({
         setSubmissions(prev => ({ ...prev, [activeTest.id]: sRes.data }));
         if (onSuccess) onSuccess();
       } else {
-        alert("Draft saved!");
+        toast.success("Draft saved!");
       }
     } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to submit test.");
+      toast.error(err.response?.data?.message || "Failed to submit test.");
     } finally {
       setIsSubmitting(false);
     }
@@ -689,13 +700,13 @@ export function TestPlayer({
               const isStandalone = !!externalTest && externalTest.id === test.id;
               return (
                 <div key={test.id} className="p-4 rounded-xl border border-slate-200 flex flex-col gap-3 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="font-semibold text-slate-800 dark:text-zinc-100">{test.title}</h4>
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-semibold text-slate-800 dark:text-zinc-100 break-words">{test.title}</h4>
                       <p className="text-xs text-slate-500">{test.questions.length} questions</p>
                     </div>
                     {hasTaken && (
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md ${
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
                         submissions[test.id].status === "Pending Evaluation" 
                           ? "text-amber-600 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400"
                           : "text-green-600 bg-green-50 dark:bg-green-950/20 dark:text-green-400"

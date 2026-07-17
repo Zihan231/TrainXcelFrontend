@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   description: "A robust Learning & Training Management System",
 };
 
+import { Toaster } from "react-hot-toast";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -47,7 +49,10 @@ export default function RootLayout({
       </head>
       <body className="flex min-h-full flex-col bg-white font-sans dark:bg-[#0a0a0a]">
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <Toaster position="top-center" />
+            {children}
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

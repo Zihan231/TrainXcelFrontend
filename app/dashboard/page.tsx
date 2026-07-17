@@ -1556,6 +1556,7 @@ function DashboardPageContent() {
                         if (selectedCourse) {
                           await loadCourseLessons(selectedCourse.courseId);
                         }
+                        setSelectedStandaloneExam(null);
                       }}
                       onCancel={() => setSelectedStandaloneExam(null)}
                     />
