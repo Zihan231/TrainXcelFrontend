@@ -1,9 +1,57 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
+
+function DocxViewer({ url }: { url: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadDocx = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch document");
+        const arrayBuffer = await response.arrayBuffer();
+        const docx = await import("docx-preview");
+        if (active && containerRef.current) {
+          containerRef.current.innerHTML = "";
+          await docx.renderAsync(arrayBuffer, containerRef.current, undefined, {
+            inWrapper: true,
+            ignoreWidth: false,
+            ignoreHeight: false,
+            ignoreFonts: false,
+            breakPages: true,
+            experimental: true
+          });
+        }
+      } catch (err: any) {
+        console.error(err);
+        if (active) setError("Could not render document. It may be password protected or corrupted.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    loadDocx();
+    return () => {
+      active = false;
+    };
+  }, [url]);
+
+  return (
+    <div className="w-full bg-white text-slate-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-auto p-4 max-h-[500px] text-left">
+      {loading && <p className="text-xs text-slate-500 animate-pulse">Rendering Word Document...</p>}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <div ref={containerRef} />
+    </div>
+  );
+}
 
 interface TestPlayerProps {
   lessonId?: number;
@@ -34,6 +82,7 @@ export function TestPlayer({
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<Record<number, any>>({});
   const [reviewSubmission, setReviewSubmission] = useState<any | null>(null);
+  const [aiFeedbackData, setAiFeedbackData] = useState<any | null>(null);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [examStatus, setExamStatus] = useState<'scheduled' | 'active' | 'completed'>('active');
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
@@ -523,6 +572,59 @@ export function TestPlayer({
           )}
         </div>
         {activeTest.description && <p className="text-slate-600 mb-4">{activeTest.description}</p>}
+        
+        {activeTest.referenceScript && (() => {
+          const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+          const scriptUrl = activeTest.referenceScript.startsWith("http") 
+            ? activeTest.referenceScript 
+            : `${base}${activeTest.referenceScript}`;
+          const ext = activeTest.referenceScript.split('.').pop()?.toLowerCase();
+          
+          return (
+            <div className="mb-6 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                  <span className="font-bold text-sm text-slate-800 dark:text-zinc-100 block">Reference Script Material</span>
+                  <span className="text-xs text-slate-500">Please review the reference script below before starting your test.</span>
+                </div>
+                <a 
+                  href={scriptUrl}
+                  download 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-sm text-center self-end sm:self-center"
+                >
+                  Download Script
+                </a>
+              </div>
+              
+              <div className="w-full">
+                {ext === 'docx' ? (
+                  <DocxViewer url={scriptUrl} />
+                ) : ext === 'pdf' ? (
+                  <iframe 
+                    src={scriptUrl} 
+                    className="w-full h-[500px] border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
+                    title="Reference Script Viewer"
+                  />
+                ) : ext === 'ppt' || ext === 'pptx' ? (
+                  <div className="flex flex-col items-center justify-center p-8 bg-zinc-900 border border-zinc-800 text-white w-full h-[250px] rounded-xl text-center">
+                    <MonitorPlay size={48} className="text-blue-500 mb-3 animate-pulse" />
+                    <h4 className="font-bold text-sm text-slate-100">PowerPoint Presentation Script</h4>
+                    <p className="text-[11px] text-zinc-400 max-w-sm mt-1 mb-4">PowerPoint files cannot be viewed directly inline. Click the button above to download and view the presentation slides.</p>
+                  </div>
+                ) : (
+                  <iframe 
+                    src={scriptUrl} 
+                    className="w-full h-[500px] border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
+                    title="Reference Script Viewer"
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {hasTaken && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 dark:bg-green-950/20 dark:border-green-900 rounded-xl text-xs text-green-800 dark:text-green-300">
             <span className="font-bold block mb-1">Test Completed</span>
@@ -631,7 +733,7 @@ export function TestPlayer({
         <p className="text-sm text-slate-500 mb-6">Score obtained: <span className="font-bold text-blue-600">{reviewSubmission.marksObtained}</span> points</p>
         <div className="flex flex-col gap-6">
           {(reviewSubmission.answers || []).map((ans: any, idx: number) => {
-            const isCQ = ans.question.type === "CQ";
+            const isCQ = ans.question.type === "CQ" || ans.question.type === "Video";
             const provided = Array.isArray(ans.providedAnswer) ? ans.providedAnswer : [ans.providedAnswer];
             const correct = ans.question.correctAnswers || [];
             const isCorrect = !isCQ && provided.length === correct.length && provided.every((v: string) => correct.includes(v));
@@ -668,7 +770,11 @@ export function TestPlayer({
                   <div className="flex flex-col gap-3">
                     <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 text-sm">
                       <p className="text-slate-500 text-xs font-bold mb-1">Your Answer:</p>
-                      <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
+                      {ans.question.type === "Video" ? (
+                        <video src={ans.providedAnswer} controls className="w-full max-w-md rounded-lg mt-1 border border-slate-200 dark:border-zinc-700 bg-black" />
+                      ) : (
+                        <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
+                      )}
                     </div>
                     {ans.evaluatorComment && (
                       <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
@@ -681,6 +787,121 @@ export function TestPlayer({
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  }
+
+  if (aiFeedbackData) {
+    let parsedFeedback: any = null;
+    try {
+      parsedFeedback = JSON.parse(aiFeedbackData.evaluatorComment);
+    } catch (e) {
+      // Fallback handled below
+    }
+
+    // Check if the feedback is structured JSON (from AI) or plain text (from manual admin evaluation)
+    let isStructuredFeedback = true;
+    try {
+      const parsed = JSON.parse(aiFeedbackData.evaluatorComment);
+      if (!parsed || typeof parsed !== 'object' || !('postureScore' in parsed)) {
+        isStructuredFeedback = false;
+      }
+    } catch (e) {
+      isStructuredFeedback = false;
+    }
+
+    if (!isStructuredFeedback) {
+      return (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn max-w-2xl mx-auto shadow-xl">
+          <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition dark:text-zinc-400 dark:hover:text-zinc-200">
+            <ArrowLeft size={16} /> Back to tests
+          </button>
+          <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">Performance Evaluation</h3>
+          <p className="text-sm text-slate-500 mb-6">Here is the grade and feedback details of your video test submission.</p>
+
+          <div className="flex flex-col gap-6">
+            {/* Overall Marks Card */}
+            <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md">
+              <p className="text-xs font-semibold uppercase tracking-wider opacity-90">Overall Score Obtained</p>
+              <p className="text-4xl font-extrabold mt-1">
+                {aiFeedbackData.marksAwarded} <span className="text-lg font-medium opacity-85">/ {aiFeedbackData.question?.marks || 15} Marks</span>
+              </p>
+            </div>
+
+            {/* Overall Feedback Comment */}
+            <div className="p-5 rounded-xl border border-slate-100 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700/50">
+              <h5 className="font-bold text-slate-800 dark:text-zinc-100 text-sm mb-3">Overall Evaluator Feedback</h5>
+              <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                {aiFeedbackData.evaluatorComment || "No feedback comments provided."}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (!parsedFeedback || typeof parsedFeedback !== 'object') {
+      parsedFeedback = {
+        postureScore: 0,
+        postureFeedback: "Unavailable",
+        attitudeScore: 0,
+        attitudeFeedback: aiFeedbackData.evaluatorComment || "No audio/voice tone feedback provided.",
+        accuracyScore: 0,
+        accuracyFeedback: "Unavailable",
+        overallScore: aiFeedbackData.marksAwarded || 0
+      };
+    }
+
+    return (
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn max-w-2xl mx-auto shadow-xl">
+        <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition dark:text-zinc-400 dark:hover:text-zinc-200">
+          <ArrowLeft size={16} /> Back to tests
+        </button>
+        <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">AI Performance Evaluation</h3>
+        <p className="text-sm text-slate-500 mb-6">Here is the detailed breakdown of your video test submission.</p>
+
+        <div className="flex flex-col gap-6">
+          {/* Overall Marks Card */}
+          <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md">
+            <p className="text-xs font-semibold uppercase tracking-wider opacity-90">Overall Score Obtained</p>
+            <p className="text-4xl font-extrabold mt-1">
+              {parsedFeedback.overallScore ?? aiFeedbackData.marksAwarded} <span className="text-lg font-medium opacity-85">/ {aiFeedbackData.question?.marks || 15} Marks</span>
+            </p>
+          </div>
+
+          {/* Posture & Dressup */}
+          <div className="p-5 rounded-xl border border-slate-100 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700/50">
+            <div className="flex justify-between items-center mb-3">
+              <h5 className="font-bold text-slate-800 dark:text-zinc-100 text-sm">1. Posture & Dress Code</h5>
+              <span className="text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2.5 py-1 rounded-full">
+                Score: {parsedFeedback.postureScore}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed">{parsedFeedback.postureFeedback}</p>
+          </div>
+
+          {/* Voice Tone & Fillers */}
+          <div className="p-5 rounded-xl border border-slate-100 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700/50">
+            <div className="flex justify-between items-center mb-3">
+              <h5 className="font-bold text-slate-800 dark:text-zinc-100 text-sm">2. Voice Tone & Clarity</h5>
+              <span className="text-xs font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 px-2.5 py-1 rounded-full">
+                Score: {parsedFeedback.attitudeScore}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed">{parsedFeedback.attitudeFeedback}</p>
+          </div>
+
+          {/* Script Accuracy */}
+          <div className="p-5 rounded-xl border border-slate-100 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700/50">
+            <div className="flex justify-between items-center mb-3">
+              <h5 className="font-bold text-slate-800 dark:text-zinc-100 text-sm">3. Script Accuracy</h5>
+              <span className="text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2.5 py-1 rounded-full">
+                Score: {parsedFeedback.accuracyScore}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed">{parsedFeedback.accuracyFeedback}</p>
+          </div>
         </div>
       </div>
     );
@@ -740,21 +961,12 @@ export function TestPlayer({
                         <span className="font-bold text-green-600 dark:text-green-400">
                           Score: {sub.marksObtained} / {totalMarks}
                         </span>
-                        {feedback.length > 0 && (
-                          <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-100 dark:border-blue-800">
-                            <p className="font-semibold text-blue-700 dark:text-blue-400 text-[10px] uppercase tracking-wider">Feedback</p>
-                            {feedback.map((a: any, i: number) => (
-                              <p key={a.id} className="text-xs text-slate-700 dark:text-zinc-300 mt-1">
-                                Q{i + 1}: {a.evaluatorComment}
-                              </p>
-                            ))}
-                          </div>
-                        )}
+                        
                       </div>
                     );
                   })()}
                   <div className="flex gap-2">
-                    {(!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video") || submissions[test.id]?.status !== "Pending Evaluation") && !(isStandalone && examStatus !== 'active') && (
+                    {(!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video")) && !(isStandalone && examStatus !== 'active') && (
                       <button 
                         onClick={() => handleStartTest(test)} 
                         disabled={isStandalone && examStatus === 'scheduled'}
@@ -763,11 +975,25 @@ export function TestPlayer({
                         {hasTaken ? "Retake Test" : "Take Test"}
                       </button>
                     )}
-                    {hasTaken && submissions[test.id].status !== "Pending Evaluation" && (
-                      <button onClick={() => setReviewSubmission(submissions[test.id])} className="flex-1 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-                        Review Answers
-                      </button>
-                    )}
+                    {hasTaken && submissions[test.id].status !== "Pending Evaluation" && (() => {
+                      const hasVideo = test.questions.some((q: any) => q.type === "Video");
+                      if (hasVideo) {
+                        const videoAns = submissions[test.id].answers?.find((a: any) => a.question.type === "Video");
+                        return (
+                          <button 
+                            onClick={() => setAiFeedbackData(videoAns)} 
+                            className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-md"
+                          >
+                            View AI Feedback
+                          </button>
+                        );
+                      }
+                      return (
+                        <button onClick={() => setReviewSubmission(submissions[test.id])} className="flex-1 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                          Review Answers
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               );

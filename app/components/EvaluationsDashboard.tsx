@@ -52,6 +52,21 @@ export function EvaluationsDashboard() {
 
   const handleSubmitEvaluation = async () => {
     if (!selectedSubmission) return;
+    
+    // Validate marks vs max marks
+    for (const ansId of Object.keys(marks)) {
+      const answerIdNum = Number(ansId);
+      const answerObj = selectedSubmission.answers.find((a: any) => a.id === answerIdNum);
+      if (answerObj) {
+        const inputMark = Number(marks[ansId]);
+        const maxMark = answerObj.question.marks;
+        if (inputMark < 0 || inputMark > maxMark) {
+          alert(`Marks for "${answerObj.question.questionText}" must be between 0 and ${maxMark}.`);
+          return;
+        }
+      }
+    }
+
     setSubmitting(true);
     
     const evaluations = Object.keys(marks).map(answerId => ({
@@ -314,24 +329,6 @@ export function EvaluationsDashboard() {
                                  <span className="text-sm italic">No video provided.</span>
                                </div>
                              )}
-                           </div>
-                           <div className="flex flex-col gap-2">
-                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Extracted Snapshots</label>
-                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                               {getSnapshotUrls(selectedSubmission).map((src, idx) => (
-                                 <img
-                                   key={idx}
-                                   src={src}
-                                   alt={`snapshot-${idx + 1}`}
-                                   className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 object-cover w-full h-24"
-                                   loading="lazy"
-                                   onError={(e) => {
-                                     const target = e.target as HTMLImageElement;
-                                     target.style.display = "none";
-                                   }}
-                                 />
-                               ))}
-                             </div>
                            </div>
                          </div>
                        ) : (
