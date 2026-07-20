@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { Bell, Check, X } from "lucide-react";
+import { Bell, Check, X, Loader2 } from "lucide-react";
 import { api } from "@/libs/api";
 import io from "socket.io-client";
 
@@ -8,6 +8,8 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingReadIds, setLoadingReadIds] = useState<Record<number, boolean>>({});
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export function NotificationBell() {
       console.warn("Attempted to mark notification as read with undefined ID");
       return;
     }
+    setLoadingReadIds((prev) => ({ ...prev, [id]: true }));
     try {
       await api.put(`/notifications/${id}/read`);
       setNotifications((prev) =>
@@ -73,10 +76,13 @@ export function NotificationBell() {
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (err) {
       console.error(err);
+    } finally {
+      setLoadingReadIds((prev) => ({ ...prev, [id]: false }));
     }
   };
 
   const markAllRead = async () => {
+    setIsMarkingAllRead(true);
     try {
       const unread = notifications.filter((n) => !n.isRead && n.id);
       await Promise.all(unread.map((n) => api.put(`/notifications/${n.id}/read`)));
@@ -84,6 +90,8 @@ export function NotificationBell() {
       setUnreadCount(0);
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsMarkingAllRead(false);
     }
   };
 
@@ -120,8 +128,10 @@ export function NotificationBell() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-[10px] font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                  disabled={isMarkingAllRead}
+                  className="text-[10px] font-semibold text-blue-600 hover:underline dark:text-blue-400 disabled:opacity-50 flex items-center gap-1"
                 >
+                  {isMarkingAllRead && <Loader2 size={10} className="animate-spin" />}
                   Mark all read
                 </button>
               )}
@@ -171,10 +181,15 @@ export function NotificationBell() {
                   {!notif.isRead && (
                     <button
                       onClick={() => markAsRead(notif.id)}
-                      className="h-7 w-7 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-500 flex items-center justify-center shrink-0 transition"
+                      disabled={loadingReadIds[notif.id]}
+                      className="h-7 w-7 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-500 flex items-center justify-center shrink-0 transition disabled:opacity-50"
                       title="Mark as read"
                     >
-                      <Check size={13} />
+                      {loadingReadIds[notif.id] ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Check size={13} />
+                      )}
                     </button>
                   )}
                 </div>

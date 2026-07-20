@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay } from "lucide-react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2 } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
@@ -284,9 +284,23 @@ export function TestPlayer({
   };
 
   const handleSubmit = async (isDraft: boolean) => {
+    const currentAnswers = answersRef.current;
+
+    if (!isDraft && activeTest) {
+      const missingVideo = activeTest.questions.some((q: any) => {
+        if (q.type !== 'Video') return false;
+        const ans = currentAnswers[q.id];
+        return !ans || String(ans).trim() === "" || ans === "Uploading...";
+      });
+
+      if (missingVideo) {
+        toast.error("Please record or upload a video response for all video questions before submitting.");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
-      const currentAnswers = answersRef.current;
       const formattedAnswers = Object.keys(currentAnswers).map(qId => ({
         questionId: Number(qId),
         providedAnswer: currentAnswers[qId],
@@ -556,17 +570,24 @@ export function TestPlayer({
   if (activeTest) {
     const hasTaken = !!submissions[activeTest.id];
     const isStandaloneActive = externalTest && externalTest.id === activeTest.id && examStatus === 'active';
+    const isUploadingVideo = Object.values(answers).some((val) => val === "Uploading...");
+
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
         <button onClick={() => setActiveTest(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition">
           <ArrowLeft size={16} /> Back to tests
         </button>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50">
-            {activeTest.title}
-          </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100 dark:border-zinc-800">
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50">
+              {activeTest.title}
+            </h3>
+            <span className="text-xs font-semibold text-slate-500 mt-1 block">
+              Total Marks: {activeTest.questions.reduce((sum: number, q: any) => sum + q.marks, 0)} points
+            </span>
+          </div>
           {isStandaloneActive && (
-            <span className="flex items-center gap-1.5 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg dark:bg-red-950/20 dark:text-red-400">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg dark:bg-red-950/20 dark:text-red-400 self-start sm:self-center">
               <Clock size={14} /> {formatTimeRemaining(timeRemaining)}
             </span>
           )}
@@ -678,61 +699,81 @@ export function TestPlayer({
                 />
               )}
               {q.type === "Video" && (
-                <div className="mt-2 border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-center gap-4 hover:border-red-400 transition bg-slate-50 dark:bg-zinc-800/30">
-                  <div className="flex-1 text-center sm:text-left">
-                    <p className="text-sm font-bold text-slate-700 dark:text-zinc-300">Provide Video Response</p>
-                    <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Record a new video or upload an existing file (MP4, WebM, MOV).</p>
-                    {answers[q.id] && (
-                      <span className="inline-flex mt-3 text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100 dark:bg-green-900/20 dark:border-green-900/30 items-center gap-1.5">
-                        <Check size={12} /> {answers[q.id].split('/').pop()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                    <button type="button" onClick={() => setRecordingQuestionId(q.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition shadow-sm">
-                      <Camera size={16} /> Record Video
-                    </button>
-                    <div className="relative flex items-center justify-center">
-                      <input 
-                        type="file" 
-                        accept="video/*" 
-                        capture="environment"
-                        onChange={async (e) => {
-                          if (e.target.files && e.target.files.length > 0) {
-                            const file = e.target.files[0];
-                            const formData = new FormData();
-                            formData.append('file', file);
-                            try {
-                              setAnswers({ ...answers, [q.id]: "Uploading..." });
-                              const res = await api.post('/tests/upload-test-video', formData, {
-                                headers: { 'Content-Type': 'multipart/form-data' },
-                              });
-                              if (res.data?.url) {
-                                setAnswers({ ...answers, [q.id]: res.data.url });
-                              }
-                            } catch (err) {
-                              alert("Video upload failed. Please try again.");
-                              setAnswers({ ...answers, [q.id]: "" });
-                            }
-                          }
-                        }}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                        id={`video-upload-${q.id}`} 
-                      />
-                      <label htmlFor={`video-upload-${q.id}`} className="flex w-full items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg text-sm font-semibold transition cursor-pointer">
-                        <UploadCloud size={16} /> Upload File
-                      </label>
+                answers[q.id] === "Uploading..." ? (
+                  <div className="mt-2 border-2 border-dashed border-blue-300 dark:border-zinc-700 rounded-xl p-6 flex flex-col items-center justify-center gap-3 bg-blue-50/20 dark:bg-zinc-800/30 w-full animate-pulse">
+                    <Loader2 size={32} className="text-blue-500 animate-spin" />
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-blue-600 dark:text-blue-400">Uploading response video...</p>
+                      <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Please do not close this page or submit the test until the upload completes.</p>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-2 border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-center gap-4 hover:border-red-400 transition bg-slate-50 dark:bg-zinc-800/30">
+                    <div className="flex-1 text-center sm:text-left">
+                      <p className="text-sm font-bold text-slate-700 dark:text-zinc-300">Provide Video Response</p>
+                      <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Record a new video or upload an existing file (MP4, WebM, MOV).</p>
+                      {answers[q.id] && (
+                        <span className="inline-flex mt-3 text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100 dark:bg-green-900/20 dark:border-green-900/30 items-center gap-1.5">
+                          <Check size={12} /> {answers[q.id].split('/').pop()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                      <button type="button" onClick={() => setRecordingQuestionId(q.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition shadow-sm">
+                        <Camera size={16} /> Record Video
+                      </button>
+                      <div className="relative flex items-center justify-center">
+                        <input 
+                          type="file" 
+                          accept="video/*" 
+                          capture="environment"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                              const file = e.target.files[0];
+                              const formData = new FormData();
+                              formData.append('file', file);
+                              try {
+                                setAnswers({ ...answers, [q.id]: "Uploading..." });
+                                const res = await api.post('/tests/upload-test-video', formData, {
+                                  headers: { 'Content-Type': 'multipart/form-data' },
+                                });
+                                if (res.data?.url) {
+                                  setAnswers({ ...answers, [q.id]: res.data.url });
+                                }
+                              } catch (err) {
+                                alert("Video upload failed. Please try again.");
+                                setAnswers({ ...answers, [q.id]: "" });
+                              }
+                            }
+                          }}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                          id={`video-upload-${q.id}`} 
+                        />
+                        <label htmlFor={`video-upload-${q.id}`} className="flex w-full items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg text-sm font-semibold transition cursor-pointer">
+                          <UploadCloud size={16} /> Upload File
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )
               )}
             </div>
           ))}
             </div>
             <div className="mt-8 flex justify-end gap-3">
-              <button onClick={() => handleSubmit(true)} disabled={isSubmitting} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition">Save Draft</button>
-              <button onClick={() => handleSubmit(false)} disabled={isSubmitting} className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition">
-                {isSubmitting ? "Submitting..." : "Submit Test"}
+              <button 
+                onClick={() => handleSubmit(true)} 
+                disabled={isSubmitting || isUploadingVideo} 
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition disabled:opacity-50"
+              >
+                Save Draft
+              </button>
+              <button 
+                onClick={() => handleSubmit(false)} 
+                disabled={isSubmitting || isUploadingVideo} 
+                className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition disabled:opacity-50 flex items-center gap-2"
+              >
+                {isSubmitting ? "Submitting..." : isUploadingVideo ? "Uploading..." : "Submit Test"}
               </button>
             </div>
           </>
