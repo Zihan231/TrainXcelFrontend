@@ -700,10 +700,10 @@ function DashboardPageContent() {
   }, [myLearningFilter]);
 
   useEffect(() => {
-    if (!isAdminOrEmployee) {
+    if (!isAdminOrEmployee && currentTab === "my-learning") {
       loadMyLearning();
     }
-  }, [myLearningPage, myLearningFilter, isAdminOrEmployee, loadMyLearning]);
+  }, [myLearningPage, myLearningFilter, isAdminOrEmployee, currentTab, loadMyLearning]);
 
   const [isProgressLoading, setIsProgressLoading] = useState(true);
 

@@ -11,19 +11,31 @@ export function NotificationBell() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let active = true;
     fetchNotifications();
 
-    const socket = io(process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000", {
-      withCredentials: true,
-    });
+    let socket: any;
 
-    socket.on("notification", (notif: any) => {
-      setNotifications((prev) => [notif, ...prev]);
-      setUnreadCount((prev) => prev + 1);
-    });
+    api.get("/auth/token")
+      .then((res) => {
+        if (!active) return;
+        const token = res.data?.token;
+        socket = io(process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000", {
+          query: token ? { token } : undefined,
+        });
+
+        socket.on("notification", (notif: any) => {
+          setNotifications((prev) => [notif, ...prev]);
+          setUnreadCount((prev) => prev + 1);
+        });
+      })
+      .catch((err) => {
+        console.error("Socket auth fetch failed", err);
+      });
 
     return () => {
-      socket.disconnect();
+      active = false;
+      if (socket) socket.disconnect();
     };
   }, []);
 
@@ -49,6 +61,10 @@ export function NotificationBell() {
   };
 
   const markAsRead = async (id: number) => {
+    if (!id) {
+      console.warn("Attempted to mark notification as read with undefined ID");
+      return;
+    }
     try {
       await api.put(`/notifications/${id}/read`);
       setNotifications((prev) =>
@@ -62,7 +78,7 @@ export function NotificationBell() {
 
   const markAllRead = async () => {
     try {
-      const unread = notifications.filter((n) => !n.isRead);
+      const unread = notifications.filter((n) => !n.isRead && n.id);
       await Promise.all(unread.map((n) => api.put(`/notifications/${n.id}/read`)));
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
