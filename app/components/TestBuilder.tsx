@@ -34,10 +34,16 @@ export function TestBuilder({
   const [endTime, setEndTime] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [referenceScript, setReferenceScript] = useState("");
+  const [scriptMode, setScriptMode] = useState<"file" | "text">("file");
   const [uploadingScript, setUploadingScript] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
+
+  const handleScriptModeChange = (mode: "file" | "text") => {
+    setScriptMode(mode);
+    setReferenceScript("");
+  };
 
   const handleScriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,7 +74,7 @@ export function TestBuilder({
         id: Math.random().toString(36).substring(7),
         type,
         questionText: "",
-        marks: 1,
+        marks: 0,
         options: type === "MCQ" ? ["Option 1", "Option 2"] : [],
         correctAnswers: [],
       },
@@ -157,14 +163,17 @@ export function TestBuilder({
       return setError("Please add at least one question.");
 
     // Validate questions
-    for (const q of questions) {
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
       if (!q.questionText.trim())
-        return setError("All questions must have text.");
+        return setError(`Question ${i + 1} must have text.`);
+      if (q.marks === 0 || !q.marks)
+        return setError(`Marks are required for Question ${i + 1}.`);
       if (q.type === "MCQ") {
         if (q.options.length < 2)
-          return setError("MCQ must have at least 2 options.");
+          return setError(`MCQ Question ${i + 1} must have at least 2 options.`);
         if (q.correctAnswers.length === 0)
-          return setError("Select at least one correct answer for MCQs.");
+          return setError(`Select at least one correct answer for MCQ Question ${i + 1}.`);
       }
     }
 
@@ -226,16 +235,7 @@ export function TestBuilder({
         Create Test / Exam
       </h4>
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">
-          {success}
-        </div>
-      )}
+
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -331,23 +331,55 @@ export function TestBuilder({
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-slate-500">
-            Reference Script (PDF, DOCX, PPT) {questions.some(q => q.type === "Video") ? "*" : ""}
-          </label>
-          <input
-            type="file"
-            accept=".pdf,.docx,.ppt,.pptx"
-            onChange={handleScriptUpload}
-            className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
-          {uploadingScript && <span className="text-xs text-blue-500">Uploading script...</span>}
-          {referenceScript && (
-            <span className="text-xs text-green-600 font-medium">
-              Uploaded: {referenceScript.split('/').pop()}
-            </span>
-          )}
-        </div>
+        {questions.some(q => q.type === "Video") && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-500">
+                Reference Script *
+              </label>
+              <div className="flex bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => handleScriptModeChange("file")}
+                  className={`px-2.5 py-1 rounded-md transition ${scriptMode === "file" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                >
+                  Upload File
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScriptModeChange("text")}
+                  className={`px-2.5 py-1 rounded-md transition ${scriptMode === "text" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                >
+                  Write Plain Text
+                </button>
+              </div>
+            </div>
+
+            {scriptMode === "file" ? (
+              <>
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.ppt,.pptx"
+                  onChange={handleScriptUpload}
+                  className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {uploadingScript && <span className="text-xs text-blue-500">Uploading script...</span>}
+                {referenceScript && (
+                  <span className="text-xs text-green-600 font-medium">
+                    Uploaded: {referenceScript.split('/').pop()}
+                  </span>
+                )}
+              </>
+            ) : (
+              <textarea
+                placeholder="Paste or write the literal reference script detailing text here..."
+                value={referenceScript}
+                onChange={(e) => setReferenceScript(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 min-h-[120px]"
+              />
+            )}
+          </div>
+        )}
 
         {/* Questions Section */}
         <div className="mt-4 border-t border-slate-100 dark:border-zinc-800 pt-4">
@@ -370,13 +402,15 @@ export function TestBuilder({
               >
                 <PlusCircle size={14} /> Add CQ
               </button>
-              <button
-                type="button"
-                onClick={() => addQuestion("Video")}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400"
-              >
-                <PlusCircle size={14} /> Add Video
-              </button>
+              {!questions.some(q => q.type === "Video") && (
+                <button
+                  type="button"
+                  onClick={() => addQuestion("Video")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400"
+                >
+                  <PlusCircle size={14} /> Add Video
+                </button>
+              )}
             </div>
           </div>
 
@@ -404,7 +438,7 @@ export function TestBuilder({
                     </label>
                     <input
                       type="number"
-                      min="0.5"
+                      min="0"
                       step="0.5"
                       value={q.marks}
                       onChange={(e) =>
@@ -499,6 +533,17 @@ export function TestBuilder({
         >
           {isSubmitting ? "Creating..." : "Create Test"}
         </button>
+
+        {error && (
+          <div className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mt-2 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">
+            {success}
+          </div>
+        )}
       </form>
     </div>
   );

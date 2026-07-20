@@ -574,6 +574,24 @@ export function TestPlayer({
         {activeTest.description && <p className="text-slate-600 mb-4">{activeTest.description}</p>}
         
         {activeTest.referenceScript && (() => {
+          const isFile = activeTest.referenceScript.startsWith("http") || 
+                         activeTest.referenceScript.startsWith("/") ||
+                         (activeTest.referenceScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(activeTest.referenceScript));
+          
+          if (!isFile) {
+            return (
+              <div className="mb-6 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-4">
+                <div>
+                  <span className="font-bold text-sm text-slate-800 dark:text-zinc-100 block">Reference Script Material</span>
+                  <span className="text-xs text-slate-500">Please review the reference script detailing text below before starting your test.</span>
+                </div>
+                <div className="w-full p-4 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-y-auto max-h-[300px] whitespace-pre-wrap text-sm text-slate-800 dark:text-zinc-200 font-sans leading-relaxed">
+                  {activeTest.referenceScript}
+                </div>
+              </div>
+            );
+          }
+
           const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
           const scriptUrl = activeTest.referenceScript.startsWith("http") 
             ? activeTest.referenceScript 
@@ -768,19 +786,82 @@ export function TestPlayer({
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3">
-                    <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 text-sm">
-                      <p className="text-slate-500 text-xs font-bold mb-1">Your Answer:</p>
-                      {ans.question.type === "Video" ? (
-                        <video src={ans.providedAnswer} controls className="w-full max-w-md rounded-lg mt-1 border border-slate-200 dark:border-zinc-700 bg-black" />
-                      ) : (
-                        <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
-                      )}
-                    </div>
-                    {ans.evaluatorComment && (
-                      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
-                        <p className="text-blue-600 text-xs font-bold mb-1">Evaluator Comment:</p>
-                        <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
-                      </div>
+                    {ans.question.type === "Video" ? (() => {
+                      let parsed: any = null;
+                      try {
+                        parsed = JSON.parse(ans.evaluatorComment);
+                      } catch (e) {}
+                      
+                      const hasAiFeedback = parsed && typeof parsed === 'object' && ('postureScore' in parsed);
+                      
+                      return (
+                        <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 flex flex-col md:flex-row gap-6 items-stretch">
+                          {/* Video Section */}
+                          <div className="shrink-0 flex flex-col gap-1">
+                            <span className="text-slate-500 text-xs font-bold">Your Video Answer:</span>
+                            <video 
+                              src={(() => {
+                                const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                                return ans.providedAnswer.startsWith("http") 
+                                  ? ans.providedAnswer 
+                                  : `${base}${ans.providedAnswer}`;
+                              })()} 
+                              controls 
+                              className="w-full max-w-[180px] rounded-lg border border-slate-200 dark:border-zinc-700 bg-black" 
+                            />
+                          </div>
+
+                          {/* Evaluation Details Section */}
+                          <div className="flex-1 flex flex-col gap-2 justify-center min-w-0">
+                            {hasAiFeedback ? (
+                              <>
+                                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">AI Evaluation Details:</p>
+                                <div className="flex flex-col gap-2 w-full">
+                                  <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                    <div className="w-28 shrink-0">
+                                      <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Posture & Dress</span>
+                                      <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsed.postureScore}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsed.postureFeedback}</p>
+                                  </div>
+                                  <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                    <div className="w-28 shrink-0">
+                                      <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Voice & Clarity</span>
+                                      <span className="text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsed.attitudeScore}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsed.attitudeFeedback}</p>
+                                  </div>
+                                  <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                    <div className="w-28 shrink-0">
+                                      <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Script Accuracy</span>
+                                      <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsed.accuracyScore}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsed.accuracyFeedback}</p>
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm w-full">
+                                <p className="text-blue-600 text-xs font-bold mb-1">Evaluator Comment:</p>
+                                <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment || "No feedback comments provided yet."}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })() : (
+                      <>
+                        <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 text-sm">
+                          <p className="text-slate-500 text-xs font-bold mb-1">Your Answer:</p>
+                          <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
+                        </div>
+                        {ans.evaluatorComment && (
+                          <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
+                            <p className="text-blue-600 text-xs font-bold mb-1">Evaluator Comment:</p>
+                            <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -977,21 +1058,24 @@ export function TestPlayer({
                     )}
                     {hasTaken && submissions[test.id].status !== "Pending Evaluation" && (() => {
                       const hasVideo = test.questions.some((q: any) => q.type === "Video");
-                      if (hasVideo) {
-                        const videoAns = submissions[test.id].answers?.find((a: any) => a.question.type === "Video");
-                        return (
-                          <button 
-                            onClick={() => setAiFeedbackData(videoAns)} 
-                            className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-md"
-                          >
-                            View AI Feedback
-                          </button>
-                        );
-                      }
+                      const videoAns = submissions[test.id].answers?.find((a: any) => a.question.type === "Video");
                       return (
-                        <button onClick={() => setReviewSubmission(submissions[test.id])} className="flex-1 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-                          Review Answers
-                        </button>
+                        <div className="flex gap-2 w-full">
+                          <button 
+                            onClick={() => setReviewSubmission(submissions[test.id])} 
+                            className="flex-1 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 text-center"
+                          >
+                            Review Answers
+                          </button>
+                          {hasVideo && videoAns && (
+                            <button 
+                              onClick={() => setAiFeedbackData(videoAns)} 
+                              className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-md text-center"
+                            >
+                              View AI Feedback
+                            </button>
+                          )}
+                        </div>
                       );
                     })()}
                   </div>
