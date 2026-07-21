@@ -104,6 +104,8 @@ export function TestPlayer({
   const [scriptMode, setScriptMode] = useState<"file" | "text">("file");
   const [selectedScriptFile, setSelectedScriptFile] = useState<File | null>(null);
   const [tempScriptFileName, setTempScriptFileName] = useState("");
+  const [selectedVideoFiles, setSelectedVideoFiles] = useState<Record<string, File>>({});
+  const [submittingTestIds, setSubmittingTestIds] = useState<Record<number, boolean>>({});
 
   const formatTimeRemaining = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -366,33 +368,74 @@ export function TestPlayer({
     const currentAnswers = answersRef.current;
 
     if (!isDraft && activeTest) {
-      const missingVideo = activeTest.questions.some((q: any) => {
-        if (q.type !== 'Video') return false;
+      const missingAnswer = activeTest.questions.some((q: any) => {
         const ans = currentAnswers[q.id];
-        return !ans || String(ans).trim() === "" || ans === "Uploading...";
+        if (q.type === "MCQ") {
+          return !ans || !Array.isArray(ans) || ans.length === 0;
+        }
+        if (q.type === "CQ") {
+          return !ans || String(ans).trim() === "";
+        }
+        if (q.type === "Video") {
+          const hasSelectedLocal = selectedVideoFiles[q.id] !== undefined;
+          return (!ans || String(ans).trim() === "" || ans === "Uploading...") && !hasSelectedLocal;
+        }
+        return false;
       });
 
-      if (missingVideo) {
-        toast.error("Please record or upload a video response for all video questions before submitting.");
+      if (missingAnswer) {
+        toast.error("Answering all questions (MCQ, CQ, and Video) is mandatory before submitting the test.");
         return;
       }
     }
 
+    if (!activeTest) return;
+    const targetTestId = activeTest.id;
+
     setIsSubmitting(true);
+    if (!isDraft) {
+      setActiveTest(null);
+      setSubmittingTestIds(prev => ({ ...prev, [targetTestId]: true }));
+      toast.success("Submitting test in the background...");
+    }
+
     try {
-      const formattedAnswers = Object.keys(currentAnswers).map(qId => ({
+      const finalAnswers = { ...currentAnswers };
+
+      const uploadKeys = Object.keys(selectedVideoFiles);
+      for (const qId of uploadKeys) {
+        const file = selectedVideoFiles[qId];
+        if (file) {
+          setAnswers(prev => ({ ...prev, [qId]: "Uploading..." }));
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await api.post('/tests/upload-test-video', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          if (res.data?.url) {
+            finalAnswers[qId] = res.data.url;
+            setAnswers(prev => ({ ...prev, [qId]: res.data.url }));
+          } else {
+            throw new Error("Failed to upload video response.");
+          }
+        }
+      }
+
+      setSelectedVideoFiles({});
+
+      const formattedAnswers = Object.keys(finalAnswers).map(qId => ({
         questionId: Number(qId),
-        providedAnswer: currentAnswers[qId],
+        providedAnswer: finalAnswers[qId],
       }));
       await api.post("/tests/submit", {
-        testId: activeTest.id,
+        testId: targetTestId,
         isDraft,
         answers: formattedAnswers,
       });
       if (!isDraft) {
-        setShowSuccessOverlay(true);
-        const sRes = await api.get(`/tests/${activeTest.id}/my-submission`);
-        setSubmissions(prev => ({ ...prev, [activeTest.id]: sRes.data }));
+        const sRes = await api.get(`/tests/${targetTestId}/my-submission`);
+        setSubmissions(prev => ({ ...prev, [targetTestId]: sRes.data }));
+        toast.success("Test submitted successfully!");
         if (onSuccess) onSuccess();
       } else {
         toast.success("Draft saved!");
@@ -401,6 +444,9 @@ export function TestPlayer({
       toast.error(err.response?.data?.message || "Failed to submit test.");
     } finally {
       setIsSubmitting(false);
+      if (!isDraft) {
+        setSubmittingTestIds(prev => ({ ...prev, [targetTestId]: false }));
+      }
     }
   };
 
@@ -818,75 +864,7 @@ export function TestPlayer({
         </div>
         {activeTest.description && <p className="text-slate-600 mb-4">{activeTest.description}</p>}
         
-        {activeTest.referenceScript && (() => {
-          const isFile = activeTest.referenceScript.startsWith("http") || 
-                         activeTest.referenceScript.startsWith("/") ||
-                         (activeTest.referenceScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(activeTest.referenceScript));
-          
-          if (!isFile) {
-            return (
-              <div className="mb-6 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-4">
-                <div>
-                  <span className="font-bold text-sm text-slate-800 dark:text-zinc-100 block">Reference Script Material</span>
-                  <span className="text-xs text-slate-500">Please review the reference script detailing text below before starting your test.</span>
-                </div>
-                <div className="w-full p-4 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-y-auto max-h-[300px] whitespace-pre-wrap text-sm text-slate-800 dark:text-zinc-200 font-sans leading-relaxed">
-                  {activeTest.referenceScript}
-                </div>
-              </div>
-            );
-          }
-
-          const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-          const scriptUrl = activeTest.referenceScript.startsWith("http") 
-            ? activeTest.referenceScript 
-            : `${base}${activeTest.referenceScript}`;
-          const ext = activeTest.referenceScript.split('.').pop()?.toLowerCase();
-          
-          return (
-            <div className="mb-6 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <div>
-                  <span className="font-bold text-sm text-slate-800 dark:text-zinc-100 block">Reference Script Material</span>
-                  <span className="text-xs text-slate-500">Please review the reference script below before starting your test.</span>
-                </div>
-                <a 
-                  href={scriptUrl}
-                  download 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-sm text-center self-end sm:self-center"
-                >
-                  Download Script
-                </a>
-              </div>
-              
-              <div className="w-full">
-                {ext === 'docx' ? (
-                  <DocxViewer url={scriptUrl} />
-                ) : ext === 'pdf' ? (
-                  <iframe 
-                    src={scriptUrl} 
-                    className="w-full h-[500px] border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
-                    title="Reference Script Viewer"
-                  />
-                ) : ext === 'ppt' || ext === 'pptx' ? (
-                  <div className="flex flex-col items-center justify-center p-8 bg-zinc-900 border border-zinc-800 text-white w-full h-[250px] rounded-xl text-center">
-                    <MonitorPlay size={48} className="text-blue-500 mb-3 animate-pulse" />
-                    <h4 className="font-bold text-sm text-slate-100">PowerPoint Presentation Script</h4>
-                    <p className="text-[11px] text-zinc-400 max-w-sm mt-1 mb-4">PowerPoint files cannot be viewed directly inline. Click the button above to download and view the presentation slides.</p>
-                  </div>
-                ) : (
-                  <iframe 
-                    src={scriptUrl} 
-                    className="w-full h-[500px] border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
-                    title="Reference Script Viewer"
-                  />
-                )}
-              </div>
-            </div>
-          );
-        })()}
+        
 
         {hasTaken && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 dark:bg-green-950/20 dark:border-green-900 rounded-xl text-xs text-green-800 dark:text-green-300">
@@ -923,63 +901,126 @@ export function TestPlayer({
                 />
               )}
               {q.type === "Video" && (
-                answers[q.id] === "Uploading..." ? (
-                  <div className="mt-2 border-2 border-dashed border-blue-300 dark:border-zinc-700 rounded-xl p-6 flex flex-col items-center justify-center gap-3 bg-blue-50/20 dark:bg-zinc-800/30 w-full animate-pulse">
-                    <Loader2 size={32} className="text-blue-500 animate-spin" />
-                    <div className="text-center">
-                      <p className="text-sm font-bold text-blue-600 dark:text-blue-400">Uploading response video...</p>
-                      <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Please do not close this page or submit the test until the upload completes.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-2 border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-center gap-4 hover:border-red-400 transition bg-slate-50 dark:bg-zinc-800/30">
-                    <div className="flex-1 text-center sm:text-left">
-                      <p className="text-sm font-bold text-slate-700 dark:text-zinc-300">Provide Video Response</p>
-                      <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Record a new video or upload an existing file (MP4, WebM, MOV).</p>
-                      {answers[q.id] && (
-                        <span className="inline-flex mt-3 text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100 dark:bg-green-900/20 dark:border-green-900/30 items-center gap-1.5">
-                          <Check size={12} /> {answers[q.id].split('/').pop()}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                      <button type="button" onClick={() => setRecordingQuestionId(q.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition shadow-sm">
-                        <Camera size={16} /> Record Video
-                      </button>
-                      <div className="relative flex items-center justify-center">
-                        <input 
-                          type="file" 
-                          accept="video/*" 
-                          capture="environment"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files.length > 0) {
-                              const file = e.target.files[0];
-                              const formData = new FormData();
-                              formData.append('file', file);
-                              try {
-                                setAnswers({ ...answers, [q.id]: "Uploading..." });
-                                const res = await api.post('/tests/upload-test-video', formData, {
-                                  headers: { 'Content-Type': 'multipart/form-data' },
-                                });
-                                if (res.data?.url) {
-                                  setAnswers({ ...answers, [q.id]: res.data.url });
-                                }
-                              } catch (err) {
-                                alert("Video upload failed. Please try again.");
-                                setAnswers({ ...answers, [q.id]: "" });
-                              }
-                            }
-                          }}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                          id={`video-upload-${q.id}`} 
-                        />
-                        <label htmlFor={`video-upload-${q.id}`} className="flex w-full items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg text-sm font-semibold transition cursor-pointer">
-                          <UploadCloud size={16} /> Upload File
-                        </label>
+                <div className="flex flex-col gap-4 mt-2">
+                  {activeTest.referenceScript && (() => {
+                    const isFile = activeTest.referenceScript.startsWith("http") || 
+                                   activeTest.referenceScript.startsWith("/") ||
+                                   (activeTest.referenceScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(activeTest.referenceScript));
+                    
+                    if (!isFile) {
+                      return (
+                        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-4 text-left">
+                          <div>
+                            <span className="font-bold text-xs text-slate-800 dark:text-zinc-100 block">Reference Script Material</span>
+                            <span className="text-[10px] text-slate-500">Please review the reference script detailing text below before preparing your video.</span>
+                          </div>
+                          <div className="w-full p-4 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-y-auto max-h-[160px] whitespace-pre-wrap text-xs text-slate-800 dark:text-zinc-200 font-mono leading-relaxed">
+                            {activeTest.referenceScript}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                    const scriptUrl = activeTest.referenceScript.startsWith("http") 
+                      ? activeTest.referenceScript 
+                      : `${base}${activeTest.referenceScript}`;
+                    const ext = activeTest.referenceScript.split('.').pop()?.toLowerCase();
+                    
+                    return (
+                      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-3 text-left">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <div>
+                            <span className="font-bold text-xs text-slate-800 dark:text-zinc-100 block">Reference Script Material</span>
+                            <span className="text-[10px] text-slate-500">Please review the reference script document below before preparing your video.</span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => handleDownloadScript(scriptUrl)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition shadow-sm uppercase tracking-wider self-end sm:self-center"
+                          >
+                            <Download size={12} />
+                            Download
+                          </button>
+                        </div>
+
+                        <div className="w-full rounded-xl overflow-hidden mt-1">
+                          {ext === 'pdf' ? (
+                            <iframe 
+                              src={scriptUrl} 
+                              className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
+                              title="Reference Script Viewer"
+                            />
+                          ) : ext === 'docx' || ext === 'doc' ? (
+                            <iframe 
+                              src={`https://docs.google.com/gview?url=${encodeURIComponent(scriptUrl)}&embedded=true`} 
+                              className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
+                              title="Reference Script Viewer"
+                            />
+                          ) : ext === 'ppt' || ext === 'pptx' ? (
+                            <div className="flex flex-col items-center justify-center p-6 bg-zinc-900 border border-zinc-800 text-white w-full h-[180px] rounded-xl text-center">
+                              <MonitorPlay size={36} className="text-blue-500 mb-2 animate-pulse" />
+                              <h4 className="font-bold text-xs text-slate-100">PowerPoint Presentation Script</h4>
+                              <p className="text-[10px] text-zinc-400 max-w-xs mt-1 mb-2">PowerPoint files cannot be viewed directly inline. Click the button above to download and view the presentation slides.</p>
+                            </div>
+                          ) : (
+                            <iframe 
+                              src={scriptUrl} 
+                              className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white" 
+                              title="Reference Script Viewer"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {answers[q.id] === "Uploading..." ? (
+                    <div className="border-2 border-dashed border-blue-300 dark:border-zinc-700 rounded-xl p-6 flex flex-col items-center justify-center gap-3 bg-blue-50/20 dark:bg-zinc-800/30 w-full animate-pulse">
+                      <Loader2 size={32} className="text-blue-500 animate-spin" />
+                      <div className="text-center">
+                        <p className="text-sm font-bold text-blue-600 dark:text-blue-400">Uploading response video...</p>
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Please do not close this page or submit the test until the upload completes.</p>
                       </div>
                     </div>
-                  </div>
-                )
+                  ) : (
+                    <div className="border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-center gap-4 hover:border-red-400 transition bg-slate-50 dark:bg-zinc-800/30">
+                      <div className="flex-1 text-center sm:text-left">
+                        <p className="text-sm font-bold text-slate-700 dark:text-zinc-300">Provide Video Response</p>
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">Record a new video or upload an existing file (MP4, WebM, MOV).</p>
+                        {answers[q.id] && (
+                          <span className="inline-flex mt-3 text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-100 dark:bg-green-900/20 dark:border-green-900/30 items-center gap-1.5">
+                            <Check size={12} /> {answers[q.id].split('/').pop()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                        <button type="button" onClick={() => setRecordingQuestionId(q.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition shadow-sm">
+                          <Camera size={16} /> Record Video
+                        </button>
+                        <div className="relative flex items-center justify-center">
+                          <input 
+                            type="file" 
+                            accept="video/*" 
+                            capture="environment"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                const file = e.target.files[0];
+                                setSelectedVideoFiles(prev => ({ ...prev, [q.id]: file }));
+                                setAnswers(prev => ({ ...prev, [q.id]: file.name }));
+                              }
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                            id={`video-upload-${q.id}`} 
+                          />
+                          <label htmlFor={`video-upload-${q.id}`} className="flex w-full items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg text-sm font-semibold transition cursor-pointer">
+                            <UploadCloud size={16} /> Upload File
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           ))}
@@ -1287,7 +1328,11 @@ export function TestPlayer({
                       <h4 className="font-semibold text-slate-800 dark:text-zinc-100 break-words">{test.title}</h4>
                       <p className="text-xs text-slate-500">{test.questions.length} questions</p>
                     </div>
-                    {hasTaken && (
+                    {submittingTestIds[test.id] ? (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 text-blue-600 bg-blue-50 dark:bg-blue-950/20 dark:text-blue-400 animate-pulse">
+                        Submitting...
+                      </span>
+                    ) : hasTaken && (
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
                         submissions[test.id].status === "Pending Evaluation" 
                           ? "text-amber-600 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400"
@@ -1296,24 +1341,24 @@ export function TestPlayer({
                         {submissions[test.id].status === "Pending Evaluation" ? "Pending Evaluation" : "Submitted"}
                       </span>
                     )}
-                    {isStandalone && !hasTaken && examStatus === 'scheduled' && (
+                    {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400">
                         Scheduled
                       </span>
                     )}
-                    {isStandalone && !hasTaken && examStatus === 'completed' && (
+                    {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'completed' && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md text-rose-600 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400">
                         Ended
                       </span>
                     )}
                   </div>
-                  {isStandalone && !hasTaken && examStatus === 'scheduled' && (
+                  {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
                     <p className="text-xs text-slate-500">Starts in {formatTimeRemaining(timeRemaining)}</p>
                   )}
-                  {isStandalone && !hasTaken && examStatus === 'active' && (
+                  {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'active' && (
                     <p className="text-xs text-blue-600 font-semibold">Time remaining: {formatTimeRemaining(timeRemaining)}</p>
                   )}
-                  {hasTaken && submissions[test.id].status === "Evaluated" && (() => {
+                  {hasTaken && !submittingTestIds[test.id] && submissions[test.id].status === "Evaluated" && (() => {
                     const sub = submissions[test.id];
                     const totalMarks = test.questions.reduce((sum: number, q: any) => sum + q.marks, 0);
                     const feedback = sub.answers.filter((a: any) => (a.question.type === "CQ" || a.question.type === "Video") && a.evaluatorComment);
@@ -1322,19 +1367,25 @@ export function TestPlayer({
                         <span className="font-bold text-green-600 dark:text-green-400">
                           Score: {sub.marksObtained} / {totalMarks}
                         </span>
-                        
                       </div>
                     );
                   })()}
                   <div className="flex gap-2">
-                    {(!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video")) && !(isStandalone && examStatus !== 'active') && (
-                      <button 
-                        onClick={() => handleStartTest(test)} 
-                        disabled={isStandalone && examStatus === 'scheduled'}
-                        className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {hasTaken ? "Retake Test" : "Take Test"}
-                      </button>
+                    {submittingTestIds[test.id] ? (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-50/50 dark:bg-blue-950/10 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold transition animate-pulse border border-blue-100/40">
+                        <Loader2 size={12} className="animate-spin" />
+                        Uploading &amp; Submitting...
+                      </div>
+                    ) : (
+                      (!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video")) && !(isStandalone && examStatus !== 'active') && (
+                        <button 
+                          onClick={() => handleStartTest(test)} 
+                          disabled={isStandalone && examStatus === 'scheduled'}
+                          className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {hasTaken ? "Retake Test" : "Take Test"}
+                        </button>
+                      )
                     )}
                     {hasTaken && submissions[test.id].status !== "Pending Evaluation" && (() => {
                       const hasVideo = test.questions.some((q: any) => q.type === "Video");
@@ -1394,21 +1445,11 @@ export function TestPlayer({
       {recordingQuestionId && (
         <WebcamRecorder 
           onCancel={() => setRecordingQuestionId(null)}
-          onUpload={async (file) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            try {
-              setAnswers({ ...answers, [recordingQuestionId]: "Uploading..." });
+          onUpload={(file) => {
+            if (recordingQuestionId) {
+              setSelectedVideoFiles(prev => ({ ...prev, [recordingQuestionId]: file }));
+              setAnswers(prev => ({ ...prev, [recordingQuestionId]: file.name }));
               setRecordingQuestionId(null);
-              const res = await api.post('/tests/upload-test-video', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-              });
-              if (res.data?.url) {
-                setAnswers(prev => ({ ...prev, [recordingQuestionId]: res.data.url }));
-              }
-            } catch (err) {
-              alert("Video upload failed. Please try again.");
-              setAnswers(prev => ({ ...prev, [recordingQuestionId]: "" }));
             }
           }}
         />
