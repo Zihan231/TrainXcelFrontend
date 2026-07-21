@@ -9,6 +9,7 @@ interface Question {
   marks: number;
   options: string[]; // for MCQ
   correctAnswers: string[]; // for MCQ
+  evaluationType?: "AI" | "Manual";
 }
 
 interface TestBuilderProps {
@@ -77,6 +78,7 @@ export function TestBuilder({
         marks: 0,
         options: type === "MCQ" ? ["Option 1", "Option 2"] : [],
         correctAnswers: [],
+        evaluationType: type === "Video" ? "AI" : undefined,
       },
     ]);
   };
@@ -509,10 +511,26 @@ export function TestBuilder({
                   </div>
                 )}
                 {q.type === "Video" && (
-                  <div className="pl-4">
-                    <p className="text-xs text-slate-500 italic">
-                      Students will be prompted to record or upload a video as
-                      their answer. This requires manual evaluation.
+                  <div className="pl-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-slate-500">
+                        Evaluation Method:
+                      </label>
+                      <select
+                        value={q.evaluationType || "AI"}
+                        onChange={(e) =>
+                          updateQuestion(q.id, "evaluationType", e.target.value as any)
+                        }
+                        className="text-xs rounded-md border border-slate-200 bg-white dark:bg-zinc-900 dark:border-zinc-700 text-slate-800 dark:text-zinc-200 px-2.5 py-1 focus:border-blue-500 outline-none"
+                      >
+                        <option value="AI">AI Review (Gemini)</option>
+                        <option value="Manual">Manual Review (Admin)</option>
+                      </select>
+                    </div>
+                    <p className="text-xs text-slate-500 italic mt-1">
+                      {q.evaluationType === "Manual"
+                        ? "Students will submit a video which requires manual grading by an admin."
+                        : "Students will submit a video which is automatically graded by AI first (with manual review backup)."}
                     </p>
                   </div>
                 )}

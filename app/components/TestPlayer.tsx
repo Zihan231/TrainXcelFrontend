@@ -210,6 +210,7 @@ export function TestPlayer({
       options: q.type === "MCQ" ? [...(q.options || [])] : undefined,
       correctAnswers: q.type === "MCQ" ? [...(q.correctAnswers || [])] : undefined,
       marks: q.marks,
+      evaluationType: q.type === "Video" ? q.evaluationType || "AI" : undefined,
     });
   };
 
@@ -548,11 +549,32 @@ export function TestPlayer({
                         )}
 
                         {/* Video question text only — no answer box for admin */}
-                        {q.type === "Video" && !isEditing && (
-                          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs text-slate-400 italic flex items-center gap-2">
-                            <Video size={14} className="text-red-500" />
-                            Video response question — learners will upload a video.
-                          </div>
+                        {q.type === "Video" && (
+                          isEditing ? (
+                            <div className="mt-2 pl-1 flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">
+                                Evaluation Method:
+                              </label>
+                              <select
+                                value={editDraft.evaluationType || "AI"}
+                                onChange={e => setEditDraft({ ...editDraft, evaluationType: e.target.value })}
+                                className="text-xs rounded border border-slate-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 px-2.5 py-1 focus:border-blue-500 outline-none w-fit"
+                              >
+                                <option value="AI">AI Review (Gemini)</option>
+                                <option value="Manual">Manual Review (Admin)</option>
+                              </select>
+                            </div>
+                          ) : (
+                            <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs text-slate-400 italic flex flex-col gap-1.5">
+                              <div className="flex items-center gap-2">
+                                <Video size={14} className="text-red-500" />
+                                Video response question — learners will upload a video.
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-semibold block">
+                                Evaluation Method: <span className="text-blue-600 dark:text-blue-400 font-bold uppercase">{q.evaluationType || "AI"}</span>
+                              </span>
+                            </div>
+                          )
                         )}
                       </div>
                     );
@@ -574,8 +596,8 @@ export function TestPlayer({
 
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
-        <button onClick={() => setActiveTest(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition">
-          <ArrowLeft size={16} /> Back to tests
+        <button onClick={() => setActiveTest(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+          <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
         </button>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100 dark:border-zinc-800">
           <div>
@@ -785,8 +807,8 @@ export function TestPlayer({
   if (reviewSubmission) {
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
-        <button onClick={() => setReviewSubmission(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition">
-          <ArrowLeft size={16} /> Back to tests
+        <button onClick={() => setReviewSubmission(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+          <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
         </button>
         <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-1">Reviewing Answers</h3>
         <p className="text-sm text-slate-500 mb-6">Score obtained: <span className="font-bold text-blue-600">{reviewSubmission.marksObtained}</span> points</p>
@@ -800,7 +822,7 @@ export function TestPlayer({
               <div key={ans.id} className="p-5 rounded-xl border border-slate-200 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700">
                 <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-1">{idx + 1}. {ans.question.questionText}</h5>
                 <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
-                  <span>Max Marks: {ans.question.marks}</span>
+                  <span>Total Marks: {ans.question.marks}</span>
                   <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : (isCQ && reviewSubmission.status === "Pending Evaluation" ? "text-amber-500" : "text-rose-600")}`}>
                     Marks Awarded: {isCQ && reviewSubmission.status === "Pending Evaluation" ? "Pending" : (ans.marksAwarded ?? 0)}
                   </span>
@@ -856,7 +878,12 @@ export function TestPlayer({
                           <div className="flex-1 flex flex-col gap-2 justify-center min-w-0">
                             {hasAiFeedback ? (
                               <>
-                                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">AI Evaluation Details:</p>
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">AI Evaluation Details:</p>
+                                  <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                                    Reviewed by AI
+                                  </span>
+                                </div>
                                 <div className="flex flex-col gap-2 w-full">
                                   <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
                                     <div className="w-28 shrink-0">
@@ -883,7 +910,12 @@ export function TestPlayer({
                               </>
                             ) : (
                               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm w-full">
-                                <p className="text-blue-600 text-xs font-bold mb-1">Evaluator Comment:</p>
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
+                                  <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                    Reviewed by Invigilator
+                                  </span>
+                                </div>
                                 <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment || "No feedback comments provided yet."}</p>
                               </div>
                             )}
@@ -898,7 +930,12 @@ export function TestPlayer({
                         </div>
                         {ans.evaluatorComment && (
                           <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
-                            <p className="text-blue-600 text-xs font-bold mb-1">Evaluator Comment:</p>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
+                              <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                Reviewed by Invigilator
+                              </span>
+                            </div>
                             <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
                           </div>
                         )}
@@ -936,8 +973,8 @@ export function TestPlayer({
     if (!isStructuredFeedback) {
       return (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn max-w-2xl mx-auto shadow-xl">
-          <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition dark:text-zinc-400 dark:hover:text-zinc-200">
-            <ArrowLeft size={16} /> Back to tests
+          <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+            <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
           </button>
           <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">Performance Evaluation</h3>
           <p className="text-sm text-slate-500 mb-6">Here is the grade and feedback details of your video test submission.</p>
@@ -977,8 +1014,8 @@ export function TestPlayer({
 
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn max-w-2xl mx-auto shadow-xl">
-        <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition dark:text-zinc-400 dark:hover:text-zinc-200">
-          <ArrowLeft size={16} /> Back to tests
+        <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+          <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
         </button>
         <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">AI Performance Evaluation</h3>
         <p className="text-sm text-slate-500 mb-6">Here is the detailed breakdown of your video test submission.</p>
@@ -1113,7 +1150,7 @@ export function TestPlayer({
                               onClick={() => setAiFeedbackData(videoAns)} 
                               className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-md text-center"
                             >
-                              View AI Feedback
+                              View Feedback
                             </button>
                           )}
                         </div>
