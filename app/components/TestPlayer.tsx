@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2 } from "lucide-react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
@@ -98,6 +98,10 @@ export function TestPlayer({
   const [savingEdit, setSavingEdit] = useState(false);
   const [expandedTestId, setExpandedTestId] = useState<number | null>(null);
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
+
+  // Admin Test editing state
+  const [uploadingScript, setUploadingScript] = useState(false);
+  const [scriptMode, setScriptMode] = useState<"file" | "text">("file");
 
   const formatTimeRemaining = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -202,15 +206,78 @@ export function TestPlayer({
     } catch { /* ignore */ }
   };
 
+  const handleScriptModeChange = (mode: "file" | "text") => {
+    setScriptMode(mode);
+    const currentScript = editDraft.referenceScript || "";
+    const isFile = currentScript.startsWith("http") || 
+                   currentScript.startsWith("/") ||
+                   (currentScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(currentScript));
+    
+    if (mode === "file" && !isFile) {
+      setEditDraft({ ...editDraft, referenceScript: "" });
+    } else if (mode === "text" && isFile) {
+      setEditDraft({ ...editDraft, referenceScript: "" });
+    }
+  };
+
+  const handleScriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploadingScript(true);
+    try {
+      const res = await api.post("/courses/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      if (res.data?.url) {
+        setEditDraft({ ...editDraft, referenceScript: res.data.url });
+        toast.success("Script uploaded successfully!");
+      }
+    } catch {
+      toast.error("Failed to upload reference script.");
+    } finally {
+      setUploadingScript(false);
+    }
+  };
+
+  const handleDownloadScript = async (url: string) => {
+    const filename = url.split('/').pop() || 'script_document';
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to fetch script");
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+      toast.success("Download started!");
+    } catch (error) {
+      window.open(url, '_blank');
+    }
+  };
+
   // ─── Admin: start editing a question ────────────────────────────────────────
-  const startEdit = (q: any) => {
+  const startEdit = (q: any, parentTest: any) => {
     setEditingQuestionId(q.id);
+    const refScript = q.type === "Video" ? parentTest.referenceScript || "" : "";
+    const isFile = refScript && (
+      refScript.startsWith("http") ||
+      refScript.startsWith("/") ||
+      (refScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(refScript))
+    );
+    setScriptMode(isFile ? "file" : "text");
     setEditDraft({
       questionText: q.questionText,
       options: q.type === "MCQ" ? [...(q.options || [])] : undefined,
       correctAnswers: q.type === "MCQ" ? [...(q.correctAnswers || [])] : undefined,
       marks: q.marks,
       evaluationType: q.type === "Video" ? q.evaluationType || "AI" : undefined,
+      referenceScript: refScript,
     });
   };
 
@@ -427,7 +494,7 @@ export function TestPlayer({
                           </div>
                           {!isEditing ? (
                             <button
-                              onClick={() => startEdit(q)}
+                              onClick={() => startEdit(q, test)}
                               className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition"
                             >
                               <Edit2 size={11} /> Edit
@@ -563,6 +630,53 @@ export function TestPlayer({
                                 <option value="AI">AI Review (Gemini)</option>
                                 <option value="Manual">Manual Review (Admin)</option>
                               </select>
+
+                              {/* Reference Script Edit inside the Video Question */}
+                              <div className="flex flex-col gap-2 border-t border-slate-200/60 dark:border-zinc-800 pt-3 mt-3">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">Reference Script / Material</label>
+                                  <div className="flex bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg text-[10px] font-bold">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleScriptModeChange("file")}
+                                      className={`px-2.5 py-1 rounded-md transition ${scriptMode === "file" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                                    >
+                                      Upload File
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleScriptModeChange("text")}
+                                      className={`px-2.5 py-1 rounded-md transition ${scriptMode === "text" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                                    >
+                                      Write Plain Text
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {scriptMode === "file" ? (
+                                  <div className="flex flex-col gap-1">
+                                    <input
+                                      type="file"
+                                      accept=".pdf,.docx,.ppt,.pptx"
+                                      onChange={handleScriptUpload}
+                                      className="text-xs file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                    />
+                                    {uploadingScript && <span className="text-xs text-blue-500 animate-pulse">Uploading script...</span>}
+                                    {editDraft.referenceScript && (
+                                      <span className="text-xs text-green-600 font-medium truncate mt-1 block">
+                                        Uploaded Script: {editDraft.referenceScript.split('/').pop()}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <textarea
+                                    placeholder="Type script text details..."
+                                    value={editDraft.referenceScript || ""}
+                                    onChange={e => setEditDraft({ ...editDraft, referenceScript: e.target.value })}
+                                    className="w-full text-xs rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 outline-none focus:border-blue-500 min-h-[80px]"
+                                  />
+                                )}
+                              </div>
                             </div>
                           ) : (
                             <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs text-slate-400 italic flex flex-col gap-1.5">
@@ -573,6 +687,79 @@ export function TestPlayer({
                               <span className="text-[10px] text-slate-500 font-semibold block">
                                 Evaluation Method: <span className="text-blue-600 dark:text-blue-400 font-bold uppercase">{q.evaluationType || "AI"}</span>
                               </span>
+
+                              {test.referenceScript && (
+                                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800/40 text-left">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+                                    Reference Script / Material:
+                                  </span>
+                                  {(() => {
+                                    const isFile = test.referenceScript.startsWith("http") || 
+                                                   test.referenceScript.startsWith("/") ||
+                                                   (test.referenceScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(test.referenceScript));
+                                    
+                                    if (isFile) {
+                                      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                                      const scriptUrl = test.referenceScript.startsWith("http") 
+                                        ? test.referenceScript 
+                                        : `${base}${test.referenceScript}`;
+                                      const isPdf = /\.(pdf)$/i.test(test.referenceScript);
+                                      const isDoc = /\.(docx|doc|pptx|ppt)$/i.test(test.referenceScript);
+                                      
+                                      if (isPdf) {
+                                        return (
+                                          <div className="flex flex-col gap-2">
+                                            <iframe src={scriptUrl} className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-lg" />
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleDownloadScript(scriptUrl)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-[10px] transition uppercase tracking-wider self-end mt-1 border border-blue-100 dark:border-blue-900/30"
+                                            >
+                                              <Download size={12} />
+                                              Download PDF ({test.referenceScript.split('/').pop()})
+                                            </button>
+                                          </div>
+                                        );
+                                      } else if (isDoc) {
+                                        const embedUrl = `https://docs.google.com/gview?url=${encodeURIComponent(scriptUrl)}&embedded=true`;
+                                        return (
+                                          <div className="flex flex-col gap-2">
+                                            <iframe src={embedUrl} className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-lg bg-white" />
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleDownloadScript(scriptUrl)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-[10px] transition uppercase tracking-wider self-end mt-1 border border-blue-100 dark:border-blue-900/30"
+                                            >
+                                              <Download size={12} />
+                                              Download Document ({test.referenceScript.split('/').pop()})
+                                            </button>
+                                          </div>
+                                        );
+                                      } else {
+                                        return (
+                                          <div className="p-3 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-between text-xs">
+                                            <span className="font-semibold text-slate-700 dark:text-zinc-300 truncate max-w-[60%]">File: {test.referenceScript.split('/').pop()}</span>
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleDownloadScript(scriptUrl)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition text-[10px] uppercase tracking-wider shrink-0"
+                                            >
+                                              <Download size={12} />
+                                              Download
+                                            </button>
+                                          </div>
+                                        );
+                                      }
+                                    } else {
+                                      return (
+                                        <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-800 rounded-lg max-h-40 overflow-y-auto text-xs font-mono whitespace-pre-wrap text-slate-700 dark:text-zinc-300">
+                                          {test.referenceScript}
+                                        </div>
+                                      );
+                                    }
+                                  })()}
+                                </div>
+                              )}
                             </div>
                           )
                         )}
