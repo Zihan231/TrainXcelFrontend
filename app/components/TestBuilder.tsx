@@ -40,32 +40,24 @@ export function TestBuilder({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
+  const [selectedScriptFile, setSelectedScriptFile] = useState<File | null>(null);
+  const [tempScriptFileName, setTempScriptFileName] = useState("");
 
   const handleScriptModeChange = (mode: "file" | "text") => {
     setScriptMode(mode);
     setReferenceScript("");
+    setSelectedScriptFile(null);
+    setTempScriptFileName("");
   };
 
-  const handleScriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScriptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setError("");
-    setUploadingScript(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await api.post("/courses/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
-      setReferenceScript(res.data.url);
-      setSuccess("Reference script uploaded successfully!");
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to upload script file.");
-    } finally {
-      setUploadingScript(false);
-    }
+    setSelectedScriptFile(file);
+    setTempScriptFileName(file.name);
+    setReferenceScript(""); // Clear string since we have a file selected
   };
 
   const addQuestion = (type: "MCQ" | "CQ" | "Video") => {
@@ -181,18 +173,30 @@ export function TestBuilder({
 
     // Require reference script if there is a Video question
     const hasVideoQuestion = questions.some((q) => q.type === "Video");
-    if (hasVideoQuestion && !referenceScript) {
-      return setError("Reference Script file is mandatory when adding a Video question.");
+    if (hasVideoQuestion && !referenceScript && !selectedScriptFile) {
+      return setError("Reference Script file or text is mandatory when adding a Video question.");
     }
 
     setIsSubmitting(true);
     try {
+      let finalScript = referenceScript;
+      if (selectedScriptFile) {
+        setUploadingScript(true);
+        const formData = new FormData();
+        formData.append("file", selectedScriptFile);
+        const uploadRes = await api.post("/courses/upload", formData, {
+          headers: { "Content-Type": "multipart/form-data" }
+        });
+        finalScript = uploadRes.data.url;
+        setUploadingScript(false);
+      }
+
       const payload = {
         title,
         description,
         testType,
         courseId,
-        referenceScript: referenceScript || undefined,
+        referenceScript: finalScript || undefined,
         lessonId: testType === "Lesson" ? Number(lessonId) : undefined,
         startTime:
           testType === "Standalone" && startTime
@@ -213,6 +217,8 @@ export function TestBuilder({
       setTitle("");
       setDescription("");
       setReferenceScript("");
+      setSelectedScriptFile(null);
+      setTempScriptFileName("");
       setQuestions([]);
       if (onSuccess)
         onSuccess(testType === "Lesson" ? Number(lessonId) : undefined);
@@ -332,56 +338,6 @@ export function TestBuilder({
             className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 min-h-[80px]"
           />
         </div>
-
-        {questions.some(q => q.type === "Video") && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-500">
-                Reference Script *
-              </label>
-              <div className="flex bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg text-[10px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => handleScriptModeChange("file")}
-                  className={`px-2.5 py-1 rounded-md transition ${scriptMode === "file" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
-                >
-                  Upload File
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleScriptModeChange("text")}
-                  className={`px-2.5 py-1 rounded-md transition ${scriptMode === "text" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
-                >
-                  Write Plain Text
-                </button>
-              </div>
-            </div>
-
-            {scriptMode === "file" ? (
-              <>
-                <input
-                  type="file"
-                  accept=".pdf,.docx,.ppt,.pptx"
-                  onChange={handleScriptUpload}
-                  className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-                {uploadingScript && <span className="text-xs text-blue-500">Uploading script...</span>}
-                {referenceScript && (
-                  <span className="text-xs text-green-600 font-medium">
-                    Uploaded: {referenceScript.split('/').pop()}
-                  </span>
-                )}
-              </>
-            ) : (
-              <textarea
-                placeholder="Paste or write the literal reference script detailing text here..."
-                value={referenceScript}
-                onChange={(e) => setReferenceScript(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 min-h-[120px]"
-              />
-            )}
-          </div>
-        )}
 
         {/* Questions Section */}
         <div className="mt-4 border-t border-slate-100 dark:border-zinc-800 pt-4">
@@ -527,11 +483,60 @@ export function TestBuilder({
                         <option value="Manual">Manual Review (Admin)</option>
                       </select>
                     </div>
-                    <p className="text-xs text-slate-500 italic mt-1">
+                    <p className="text-xs text-slate-500 italic">
                       {q.evaluationType === "Manual"
                         ? "Students will submit a video which requires manual grading by an admin."
                         : "Students will submit a video which is automatically graded by AI first (with manual review backup)."}
                     </p>
+
+                    {/* Reference Script / Material Upload inside same Video question card */}
+                    <div className="flex flex-col gap-2 border-t border-slate-100 dark:border-zinc-800 pt-3 mt-2 text-left">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                          Reference Script / Material *
+                        </label>
+                        <div className="flex bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => handleScriptModeChange("file")}
+                            className={`px-2.5 py-1 rounded-md transition ${scriptMode === "file" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                          >
+                            Upload File
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleScriptModeChange("text")}
+                            className={`px-2.5 py-1 rounded-md transition ${scriptMode === "text" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                          >
+                            Write Plain Text
+                          </button>
+                        </div>
+                      </div>
+
+                      {scriptMode === "file" ? (
+                        <div className="flex flex-col gap-1 mt-1">
+                          <input
+                            type="file"
+                            accept=".pdf,.docx,.ppt,.pptx"
+                            onChange={handleScriptUpload}
+                            className="text-xs file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                          />
+                          {uploadingScript && <span className="text-[10px] text-blue-500 animate-pulse">Uploading script...</span>}
+                          {tempScriptFileName && (
+                            <span className="text-[10px] text-green-600 font-medium block mt-1">
+                              Selected: {tempScriptFileName} (will upload on submit)
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <textarea
+                          placeholder="Paste or write the literal reference script details here..."
+                          value={referenceScript}
+                          onChange={(e) => setReferenceScript(e.target.value)}
+                          className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-xs focus:border-blue-600 focus:outline-none dark:border-zinc-800 min-h-[90px]"
+                        />
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

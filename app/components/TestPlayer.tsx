@@ -102,6 +102,8 @@ export function TestPlayer({
   // Admin Test editing state
   const [uploadingScript, setUploadingScript] = useState(false);
   const [scriptMode, setScriptMode] = useState<"file" | "text">("file");
+  const [selectedScriptFile, setSelectedScriptFile] = useState<File | null>(null);
+  const [tempScriptFileName, setTempScriptFileName] = useState("");
 
   const formatTimeRemaining = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -208,6 +210,8 @@ export function TestPlayer({
 
   const handleScriptModeChange = (mode: "file" | "text") => {
     setScriptMode(mode);
+    setSelectedScriptFile(null);
+    setTempScriptFileName("");
     const currentScript = editDraft.referenceScript || "";
     const isFile = currentScript.startsWith("http") || 
                    currentScript.startsWith("/") ||
@@ -220,25 +224,11 @@ export function TestPlayer({
     }
   };
 
-  const handleScriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScriptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
-    const formData = new FormData();
-    formData.append("file", file);
-    setUploadingScript(true);
-    try {
-      const res = await api.post("/courses/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      if (res.data?.url) {
-        setEditDraft({ ...editDraft, referenceScript: res.data.url });
-        toast.success("Script uploaded successfully!");
-      }
-    } catch {
-      toast.error("Failed to upload reference script.");
-    } finally {
-      setUploadingScript(false);
-    }
+    setSelectedScriptFile(file);
+    setTempScriptFileName(file.name);
   };
 
   const handleDownloadScript = async (url: string) => {
@@ -264,6 +254,8 @@ export function TestPlayer({
   // ─── Admin: start editing a question ────────────────────────────────────────
   const startEdit = (q: any, parentTest: any) => {
     setEditingQuestionId(q.id);
+    setSelectedScriptFile(null);
+    setTempScriptFileName("");
     const refScript = q.type === "Video" ? parentTest.referenceScript || "" : "";
     const isFile = refScript && (
       refScript.startsWith("http") ||
@@ -284,20 +276,39 @@ export function TestPlayer({
   const cancelEdit = () => {
     setEditingQuestionId(null);
     setEditDraft({});
+    setSelectedScriptFile(null);
+    setTempScriptFileName("");
   };
 
   const saveEdit = async (questionId: number) => {
     setSavingEdit(true);
     try {
-      await api.put(`/tests/questions/${questionId}`, editDraft);
+      let finalScript = editDraft.referenceScript;
+      if (selectedScriptFile) {
+        setUploadingScript(true);
+        const formData = new FormData();
+        formData.append("file", selectedScriptFile);
+        const uploadRes = await api.post("/courses/upload", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        finalScript = uploadRes.data.url;
+        setUploadingScript(false);
+      }
+
+      const updatedDraft = { ...editDraft, referenceScript: finalScript };
+
+      await api.put(`/tests/questions/${questionId}`, updatedDraft);
       // Refresh tests to show updated data
       await fetchTests();
       setEditingQuestionId(null);
       setEditDraft({});
+      setSelectedScriptFile(null);
+      setTempScriptFileName("");
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to save question.");
     } finally {
       setSavingEdit(false);
+      setUploadingScript(false);
     }
   };
 
@@ -658,15 +669,19 @@ export function TestPlayer({
                                     <input
                                       type="file"
                                       accept=".pdf,.docx,.ppt,.pptx"
-                                      onChange={handleScriptUpload}
+                                      onChange={handleScriptFileChange}
                                       className="text-xs file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                     />
                                     {uploadingScript && <span className="text-xs text-blue-500 animate-pulse">Uploading script...</span>}
-                                    {editDraft.referenceScript && (
+                                    {tempScriptFileName ? (
                                       <span className="text-xs text-green-600 font-medium truncate mt-1 block">
-                                        Uploaded Script: {editDraft.referenceScript.split('/').pop()}
+                                        Selected: {tempScriptFileName} (will upload on save)
                                       </span>
-                                    )}
+                                    ) : editDraft.referenceScript ? (
+                                      <span className="text-xs text-slate-500 font-medium truncate mt-1 block">
+                                        Current script: {editDraft.referenceScript.split('/').pop()}
+                                      </span>
+                                    ) : null}
                                   </div>
                                 ) : (
                                   <textarea
