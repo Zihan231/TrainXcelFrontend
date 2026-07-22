@@ -684,8 +684,8 @@ export function TestPlayer({
                                 onChange={e => setEditDraft({ ...editDraft, evaluationType: e.target.value })}
                                 className="text-xs rounded border border-slate-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 px-2.5 py-1 focus:border-blue-500 outline-none w-fit"
                               >
-                                <option value="AI">AI Review (Gemini)</option>
-                                <option value="Manual">Manual Review (Admin)</option>
+                                <option value="AI">AI Review</option>
+                                <option value="Manual">Manual Review</option>
                               </select>
 
                               {/* Reference Script Edit inside the Video Question */}
@@ -1124,9 +1124,11 @@ export function TestPlayer({
                             {hasAiFeedback ? (
                               <>
                                 <div className="flex items-center justify-between mb-2">
-                                  <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">AI Evaluation Details:</p>
+                                  <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">
+                                    {ans.evaluatedBy === 'AI' ? 'AI Evaluation Details:' : 'Evaluator Evaluation Details:'}
+                                  </p>
                                   <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
-                                    Reviewed by AI
+                                    {ans.evaluatedBy === 'AI' ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
                                   </span>
                                 </div>
                                 <div className="flex flex-col gap-2 w-full">
@@ -1262,8 +1264,12 @@ export function TestPlayer({
         <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
           <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
         </button>
-        <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">AI Performance Evaluation</h3>
-        <p className="text-sm text-slate-500 mb-6">Here is the detailed breakdown of your video test submission.</p>
+        <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">
+          {aiFeedbackData.evaluatedBy === 'AI' ? 'AI Performance Evaluation' : 'Performance Evaluation Details'}
+        </h3>
+        <p className="text-sm text-slate-500 mb-6">
+          Here is the detailed breakdown of your video test submission {aiFeedbackData.evaluatedBy === 'AI' ? 'assessed by AI' : 'assessed by your evaluator'}.
+        </p>
 
         <div className="flex flex-col gap-6">
           {/* Overall Marks Card */}
@@ -1379,13 +1385,13 @@ export function TestPlayer({
                         Uploading &amp; Submitting...
                       </div>
                     ) : (
-                      (!hasTaken || !test.questions.some((q: any) => q.type === "CQ" || q.type === "Video")) && !(isStandalone && examStatus !== 'active') && (
+                      !hasTaken && !(isStandalone && examStatus !== 'active') && (
                         <button 
                           onClick={() => handleStartTest(test)} 
                           disabled={isStandalone && examStatus === 'scheduled'}
                           className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {hasTaken ? "Retake Test" : "Take Test"}
+                          Take Test
                         </button>
                       )
                     )}
@@ -1400,14 +1406,7 @@ export function TestPlayer({
                           >
                             Review Answers
                           </button>
-                          {hasVideo && videoAns && (
-                            <button 
-                              onClick={() => setAiFeedbackData(videoAns)} 
-                              className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-md text-center"
-                            >
-                              View Feedback
-                            </button>
-                          )}
+                          
                         </div>
                       );
                     })()}

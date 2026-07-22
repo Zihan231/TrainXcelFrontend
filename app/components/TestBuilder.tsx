@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { PlusCircle, Trash2, CheckCircle, Search } from "lucide-react";
 import { api } from "@/libs/api";
+import { toast } from "react-hot-toast";
 
 interface Question {
   id: string; // temp id for UI
@@ -150,31 +151,36 @@ export function TestBuilder({
     setError("");
     setSuccess("");
 
-    if (!title.trim()) return setError("Test title is required.");
+    const triggerError = (msg: string) => {
+      setError(msg);
+      toast.error(msg);
+    };
+
+    if (!title.trim()) return triggerError("Test title is required.");
     if (testType === "Lesson" && !lessonId)
-      return setError("Please select a lesson.");
+      return triggerError("Please select a lesson.");
     if (questions.length === 0)
-      return setError("Please add at least one question.");
+      return triggerError("Please add at least one question.");
 
     // Validate questions
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       if (!q.questionText.trim())
-        return setError(`Question ${i + 1} must have text.`);
+        return triggerError(`Question ${i + 1} must have text.`);
       if (q.marks === 0 || !q.marks)
-        return setError(`Marks are required for Question ${i + 1}.`);
+        return triggerError(`Marks are required for Question ${i + 1}.`);
       if (q.type === "MCQ") {
         if (q.options.length < 2)
-          return setError(`MCQ Question ${i + 1} must have at least 2 options.`);
+          return triggerError(`MCQ Question ${i + 1} must have at least 2 options.`);
         if (q.correctAnswers.length === 0)
-          return setError(`Select at least one correct answer for MCQ Question ${i + 1}.`);
+          return triggerError(`Select at least one correct answer for MCQ Question ${i + 1}.`);
       }
     }
 
     // Require reference script if there is a Video question
     const hasVideoQuestion = questions.some((q) => q.type === "Video");
     if (hasVideoQuestion && !referenceScript && !selectedScriptFile) {
-      return setError("Reference Script file or text is mandatory when adding a Video question.");
+      return triggerError("Reference Script file or text is mandatory when adding a Video question.");
     }
 
     setIsSubmitting(true);
@@ -213,6 +219,7 @@ export function TestBuilder({
       };
 
       await api.post("/tests", payload);
+      toast.success("Test created successfully!");
       setSuccess("Test created successfully!");
       setTitle("");
       setDescription("");
@@ -227,11 +234,8 @@ export function TestBuilder({
         response?: { data?: { message?: string } };
         message?: string;
       };
-      setError(
-        anyErr.response?.data?.message ||
-          anyErr.message ||
-          "Failed to create test",
-      );
+      const errorMsg = anyErr.response?.data?.message || anyErr.message || "Failed to create test";
+      triggerError(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -479,8 +483,8 @@ export function TestBuilder({
                         }
                         className="text-xs rounded-md border border-slate-200 bg-white dark:bg-zinc-900 dark:border-zinc-700 text-slate-800 dark:text-zinc-200 px-2.5 py-1 focus:border-blue-500 outline-none"
                       >
-                        <option value="AI">AI Review (Gemini)</option>
-                        <option value="Manual">Manual Review (Admin)</option>
+                        <option value="AI">AI Review</option>
+                        <option value="Manual">Manual Review</option>
                       </select>
                     </div>
                     <p className="text-xs text-slate-500 italic">

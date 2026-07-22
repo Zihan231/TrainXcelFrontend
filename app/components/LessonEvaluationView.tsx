@@ -185,8 +185,10 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
         const accScore = accuracyScores[ans.id];
         const accFb = accuracyFeedbacks[ans.id];
 
-        if (posScore === undefined || posScore < 0 || posScore > 5) {
-          toast.error(`Posture & Dress score for Question ${qNum} must be between 0 and 5.`);
+        const maxMarks = ans.question.marks || 15;
+
+        if (posScore === undefined || posScore < 0 || posScore > maxMarks) {
+          toast.error(`Posture & Dress score for Question ${qNum} must be between 0 and ${maxMarks}.`);
           return;
         }
         if (!posFb || posFb.trim() === "") {
@@ -194,8 +196,8 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
           return;
         }
 
-        if (attScore === undefined || attScore < 0 || attScore > 5) {
-          toast.error(`Voice Tone & Clarity score for Question ${qNum} must be between 0 and 5.`);
+        if (attScore === undefined || attScore < 0 || attScore > maxMarks) {
+          toast.error(`Voice Tone & Clarity score for Question ${qNum} must be between 0 and ${maxMarks}.`);
           return;
         }
         if (!attFb || attFb.trim() === "") {
@@ -203,8 +205,8 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
           return;
         }
 
-        if (accScore === undefined || accScore < 0 || accScore > 5) {
-          toast.error(`Script Accuracy score for Question ${qNum} must be between 0 and 5.`);
+        if (accScore === undefined || accScore < 0 || accScore > maxMarks) {
+          toast.error(`Script Accuracy score for Question ${qNum} must be between 0 and ${maxMarks}.`);
           return;
         }
         if (!accFb || accFb.trim() === "") {
@@ -212,13 +214,7 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
           return;
         }
 
-        const totalVideoMarks = Number(posScore) + Number(attScore) + Number(accScore);
-        const maxMarks = ans.question.marks || 15;
-
-        if (totalVideoMarks > maxMarks) {
-          toast.error(`Total video score (${totalVideoMarks}) cannot exceed maximum allowed marks (${maxMarks}) for Question ${qNum}.`);
-          return;
-        }
+        const totalVideoMarks = Math.round((((Number(posScore) + Number(attScore) + Number(accScore)) / 3)) * 100) / 100;
 
         const structuredComment = JSON.stringify({
           postureScore: Number(posScore),
@@ -389,7 +385,8 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                   ? ans.providedAnswer
                   : `${base}${ans.providedAnswer}`;
 
-                const currentTotal = (postureScores[ans.id] || 0) + (attitudeScores[ans.id] || 0) + (accuracyScores[ans.id] || 0);
+                const maxMarks = ans.question.marks || 15;
+                const currentTotal = Math.round(((((postureScores[ans.id] || 0) + (attitudeScores[ans.id] || 0) + (accuracyScores[ans.id] || 0)) / 3)) * 100) / 100;
 
                 return (
                   <div key={ans.id} className="p-5 rounded-2xl border border-purple-100 dark:border-purple-950/60 bg-purple-50/20 dark:bg-purple-950/10 flex flex-col gap-5">
@@ -401,7 +398,7 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                         <p className="text-[10px] text-slate-400 mt-0.5">Method: {ans.question.evaluationType || "AI"}</p>
                       </div>
                       <span className="text-xs font-bold text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 px-3 py-1.5 rounded-full border border-purple-200 dark:border-purple-800">
-                        Total Video Score: {currentTotal} / {ans.question.marks || 15}
+                        Total Video Score: {currentTotal} / {maxMarks}
                       </span>
                     </div>
 
@@ -424,12 +421,13 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                       <div className="p-3.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center">
                         <div className="w-48 shrink-0">
                           <label className="text-xs font-bold text-blue-900 dark:text-blue-300 block">1. Posture &amp; Dress Code <span className="text-rose-500">*</span></label>
-                          <span className="text-[10px] text-blue-600 dark:text-blue-400">Score range: 0 - 5</span>
+                          <span className="text-[10px] text-blue-600 dark:text-blue-400">Score range: 0 - {maxMarks}</span>
                         </div>
                         <input
                           type="number"
                           min={0}
-                          max={5}
+                          max={maxMarks}
+                          step="0.1"
                           value={postureScores[ans.id] ?? 0}
                           onChange={(e) => setPostureScores({ ...postureScores, [ans.id]: Number(e.target.value) })}
                           className="w-20 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-blue-600 focus:outline-none"
@@ -447,12 +445,13 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                       <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/40 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center">
                         <div className="w-48 shrink-0">
                           <label className="text-xs font-bold text-purple-900 dark:text-purple-300 block">2. Voice Tone &amp; Clarity <span className="text-rose-500">*</span></label>
-                          <span className="text-[10px] text-purple-600 dark:text-purple-400">Score range: 0 - 5</span>
+                          <span className="text-[10px] text-purple-600 dark:text-purple-400">Score range: 0 - {maxMarks}</span>
                         </div>
                         <input
                           type="number"
                           min={0}
-                          max={5}
+                          max={maxMarks}
+                          step="0.1"
                           value={attitudeScores[ans.id] ?? 0}
                           onChange={(e) => setAttitudeScores({ ...attitudeScores, [ans.id]: Number(e.target.value) })}
                           className="w-20 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-purple-600 focus:outline-none"
@@ -470,12 +469,13 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                       <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center">
                         <div className="w-48 shrink-0">
                           <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">3. Script Accuracy <span className="text-rose-500">*</span></label>
-                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Score range: 0 - 5</span>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Score range: 0 - {maxMarks}</span>
                         </div>
                         <input
                           type="number"
                           min={0}
-                          max={5}
+                          max={maxMarks}
+                          step="0.1"
                           value={accuracyScores[ans.id] ?? 0}
                           onChange={(e) => setAccuracyScores({ ...accuracyScores, [ans.id]: Number(e.target.value) })}
                           className="w-20 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-emerald-600 focus:outline-none"

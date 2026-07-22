@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { CheckCircle, AlertTriangle, FileText, User, ChevronLeft, ChevronRight, Video } from "lucide-react";
 import { api } from "@/libs/api";
+import { toast } from "react-hot-toast";
 
 export function EvaluationsDashboard() {
   const [pendingEvaluations, setPendingEvaluations] = useState<any[]>([]);
@@ -61,7 +62,7 @@ export function EvaluationsDashboard() {
         const inputMark = Number(marks[ansId]);
         const maxMark = answerObj.question.marks;
         if (inputMark < 0 || inputMark > maxMark) {
-          alert(`Marks for "${answerObj.question.questionText}" must be between 0 and ${maxMark}.`);
+          toast.error(`Marks for "${answerObj.question.questionText}" must be between 0 and ${maxMark}.`);
           return;
         }
       }
@@ -80,10 +81,11 @@ export function EvaluationsDashboard() {
         testSubmissionId: selectedSubmission.id,
         evaluations,
       });
+      toast.success("Evaluation submitted successfully!");
       setSelectedSubmission(null);
       await fetchPending();
     } catch (err: any) {
-      alert("Failed to submit evaluation");
+      toast.error(err.response?.data?.message || "Failed to submit evaluation");
     } finally {
       setSubmitting(false);
     }

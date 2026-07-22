@@ -25,6 +25,7 @@ import { TestBuilder } from "@/components/TestBuilder";
 import { EvaluationsDashboard } from "@/components/EvaluationsDashboard";
 import { TestPlayer } from "@/components/TestPlayer";
 import { LessonEvaluationView } from "@/components/LessonEvaluationView";
+import { toast } from "react-hot-toast";
 
 // Generates a unique color for any index using HSL
 function getColor(i: number): string {
@@ -854,7 +855,7 @@ function DashboardPageContent() {
       const list = res?.data ?? res?.items ?? res ?? [];
       setTrashItems(Array.isArray(list) ? list : []);
     } catch (err: any) {
-      alert(err?.message || "Failed to load recycle bin.");
+      toast.error(err?.message || "Failed to load recycle bin.");
       setTrashItems([]);
     } finally {
       setIsLoadingTrash(false);
@@ -902,6 +903,7 @@ function DashboardPageContent() {
             categoryId: Number(newCourseCategory),
             status: newCourseStatus,
           });
+          toast.success("Course created successfully!");
           setCourseFormSuccess("Course created successfully!");
           setNewCourseName("");
           fetchCourses();
@@ -928,6 +930,7 @@ function DashboardPageContent() {
       async () => {
         try {
           await api.patch(`/courses/${courseId}/status`, { status });
+          toast.success(`Course status updated to ${status.toUpperCase()} successfully!`);
           const updatedCourses = await api.get(`/courses/search?q=`);
           const freshCourse = updatedCourses.data?.find((c: Course) => c.courseId === courseId);
           if (freshCourse) {
@@ -936,7 +939,7 @@ function DashboardPageContent() {
           fetchCourses();
           loadPaginatedCourses();
         } catch (err: any) {
-          alert(err.message);
+          toast.error(err.message || "Failed to update course status.");
         }
       },
       status === "active" ? "Set Active" : "Set Inactive"
@@ -1116,11 +1119,12 @@ function DashboardPageContent() {
       async () => {
         try {
           await enrollInCourse(courseId);
+          toast.success("Enrolled in course successfully!");
           await fetchCourses();
           loadLearnerProgress();
           router.push("/dashboard?tab=my-learning");
         } catch (err: any) {
-          alert(err.message);
+          toast.error(err.message || "Failed to enroll in course.");
         }
       },
       "Enroll Now"
@@ -1134,11 +1138,12 @@ function DashboardPageContent() {
       async () => {
         try {
           await completeLesson(courseId, lessonId);
+          toast.success("Lesson completed!");
           const freshLessons = await loadCourseLessons(courseId);
           const freshLesson = freshLessons.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
           if (freshLesson) setSelectedLesson(freshLesson);
         } catch (err: any) {
-          alert(err.message);
+          toast.error(err.message || "Failed to complete lesson.");
         }
       },
       "Mark Complete"
@@ -1161,6 +1166,7 @@ function DashboardPageContent() {
       async () => {
         try {
           await softDeleteCourse(courseId);
+          toast.success("Course moved to Recycle Bin.");
           if (selectedCourse?.courseId === courseId) {
             setSelectedCourse(null);
             setSelectedLesson(null);
@@ -1170,7 +1176,7 @@ function DashboardPageContent() {
           await fetchCourses();
           await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
         } catch (err: any) {
-          alert(err.message || "Failed to delete course.");
+          toast.error(err.message || "Failed to delete course.");
         }
       },
       "Move to Trash"
@@ -1184,13 +1190,14 @@ function DashboardPageContent() {
       async () => {
         try {
           await softDeleteLesson(courseId, lessonId);
+          toast.success("Lesson moved to Recycle Bin.");
           if (selectedLesson && (selectedLesson.lessonId === lessonId || String(selectedLesson.id) === String(lessonId))) {
             setSelectedLesson(null);
           }
           await loadCourseLessons(courseId);
           await fetchCourses();
         } catch (err: any) {
-          alert(err.message || "Failed to delete lesson.");
+          toast.error(err.message || "Failed to delete lesson.");
         }
       },
       "Move to Trash"
@@ -1204,13 +1211,14 @@ function DashboardPageContent() {
       async () => {
         try {
           await updateUserRole(userId, newRole);
+          toast.success(`Clearance role changed to ${newRole.toUpperCase()} successfully!`);
           if (userSearchQuery) {
             loadUsers(userSearchQuery);
           } else {
             loadPaginatedUsers(usersPage);
           }
         } catch (err: any) {
-          alert(err.message);
+          toast.error(err.message || "Failed to update clearance role.");
         }
       },
       "Change Clearance"
@@ -1238,6 +1246,7 @@ function DashboardPageContent() {
         role: employeeRole,
       });
 
+      toast.success("Employee registered successfully!");
       setEmployeeFormSuccess("Employee registered successfully!");
       setEmployeeEmail("");
       setEmployeeName("");
@@ -2698,7 +2707,7 @@ function DashboardPageContent() {
                           setSelectedCourse(res.data);
                           await loadCourseLessons(c.courseId, true);
                         } catch (err: any) {
-                          alert(err.message);
+                          toast.error(err.message || "Failed to load course details.");
                         } finally {
                           setActionLoading(false);
                         }
@@ -2774,7 +2783,7 @@ function DashboardPageContent() {
                                 setSelectedCourse(res.data);
                                 await loadCourseLessons(c.courseId, true);
                               } catch (err: any) {
-                                alert(err.message);
+                                toast.error(err.message || "Failed to load course details.");
                               } finally {
                                 setActionLoading(false);
                               }
@@ -3527,10 +3536,15 @@ function DashboardPageContent() {
         "Restore Course",
         "Restore this course from the recycle bin?",
         async () => {
-          await restoreCourse(courseId);
-          await loadTrash();
-          await fetchCourses();
-          await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+          try {
+            await restoreCourse(courseId);
+            toast.success("Course restored successfully!");
+            await loadTrash();
+            await fetchCourses();
+            await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+          } catch (err: any) {
+            toast.error(err.message || "Failed to restore course.");
+          }
         },
         "Restore"
       );
@@ -3541,10 +3555,15 @@ function DashboardPageContent() {
         "Restore Lesson",
         "Restore this lesson from the recycle bin?",
         async () => {
-          await restoreLesson(courseId, lessonId);
-          await loadTrash();
-          await fetchCourses();
-          await loadCourseLessons(courseId);
+          try {
+            await restoreLesson(courseId, lessonId);
+            toast.success("Lesson restored successfully!");
+            await loadTrash();
+            await fetchCourses();
+            await loadCourseLessons(courseId);
+          } catch (err: any) {
+            toast.error(err.message || "Failed to restore lesson.");
+          }
         },
         "Restore"
       );
@@ -3555,11 +3574,16 @@ function DashboardPageContent() {
         "Permanently Delete Course",
         "This will permanently remove the course from the database. This cannot be undone.",
         async () => {
-          await hardDeleteCourse(courseId);
-          removeFromRecentlyViewed(courseId);
-          await loadTrash();
-          await fetchCourses();
-          await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+          try {
+            await hardDeleteCourse(courseId);
+            toast.success("Course deleted permanently.");
+            removeFromRecentlyViewed(courseId);
+            await loadTrash();
+            await fetchCourses();
+            await loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+          } catch (err: any) {
+            toast.error(err.message || "Failed to delete course permanently.");
+          }
         },
         "Delete Permanently"
       );
@@ -3570,13 +3594,18 @@ function DashboardPageContent() {
         "Permanently Delete Lesson",
         "This will permanently remove the lesson from the database. This cannot be undone.",
         async () => {
-          await hardDeleteLesson(courseId, lessonId);
-          if (selectedLesson && (selectedLesson.lessonId === lessonId || String(selectedLesson.id) === String(lessonId))) {
-            setSelectedLesson(null);
+          try {
+            await hardDeleteLesson(courseId, lessonId);
+            toast.success("Lesson deleted permanently.");
+            if (selectedLesson && (selectedLesson.lessonId === lessonId || String(selectedLesson.id) === String(lessonId))) {
+              setSelectedLesson(null);
+            }
+            await loadTrash();
+            await fetchCourses();
+            await loadCourseLessons(courseId);
+          } catch (err: any) {
+            toast.error(err.message || "Failed to delete lesson permanently.");
           }
-          await loadTrash();
-          await fetchCourses();
-          await loadCourseLessons(courseId);
         },
         "Delete Permanently"
       );
@@ -3587,8 +3616,13 @@ function DashboardPageContent() {
         "Empty Recycle Bin",
         "This will permanently delete ALL items currently in the recycle bin. This cannot be undone.",
         async () => {
-          await emptyTrash();
-          await loadTrash();
+          try {
+            await emptyTrash();
+            toast.success("Recycle Bin emptied.");
+            await loadTrash();
+          } catch (err: any) {
+            toast.error(err.message || "Failed to empty recycle bin.");
+          }
         },
         "Empty Bin"
       );
@@ -3738,7 +3772,7 @@ function DashboardPageContent() {
                                   const lessonRes = await api.get(`/courses/${item.courseId}/lessons/${item.lessonId}`);
                                   setDeletedLessonDetails(lessonRes.data);
                                 } catch (e: any) {
-                                  alert(e?.response?.data?.message || "Failed to fetch deleted lesson details.");
+                                  toast.error(e?.response?.data?.message || "Failed to fetch deleted lesson details.");
                                 } finally {
                                   setActionLoading(false);
                                 }
