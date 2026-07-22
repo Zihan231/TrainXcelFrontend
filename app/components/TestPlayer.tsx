@@ -258,7 +258,7 @@ export function TestPlayer({
     setEditingQuestionId(q.id);
     setSelectedScriptFile(null);
     setTempScriptFileName("");
-    const refScript = q.type === "Video" ? parentTest.referenceScript || "" : "";
+    const refScript = q.type === "Video" ? (q.referenceScript || parentTest.referenceScript || "") : "";
     const isFile = refScript && (
       refScript.startsWith("http") ||
       refScript.startsWith("/") ||
@@ -749,23 +749,24 @@ export function TestPlayer({
                                 Evaluation Method: <span className="text-blue-600 dark:text-blue-400 font-bold uppercase">{q.evaluationType || "AI"}</span>
                               </span>
 
-                              {test.referenceScript && (
+                              {(q.referenceScript || test.referenceScript) && (
                                 <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800/40 text-left">
                                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
                                     Reference Script / Material:
                                   </span>
                                   {(() => {
-                                    const isFile = test.referenceScript.startsWith("http") || 
-                                                   test.referenceScript.startsWith("/") ||
-                                                   (test.referenceScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(test.referenceScript));
+                                    const refScript = q.referenceScript || test.referenceScript;
+                                    const isFile = refScript.startsWith("http") || 
+                                                   refScript.startsWith("/") ||
+                                                   (refScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(refScript));
                                     
                                     if (isFile) {
                                       const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-                                      const scriptUrl = test.referenceScript.startsWith("http") 
-                                        ? test.referenceScript 
-                                        : `${base}${test.referenceScript}`;
-                                      const isPdf = /\.(pdf)$/i.test(test.referenceScript);
-                                      const isDoc = /\.(docx|doc|pptx|ppt)$/i.test(test.referenceScript);
+                                      const scriptUrl = refScript.startsWith("http") 
+                                        ? refScript 
+                                        : `${base}${refScript}`;
+                                      const isPdf = /\.(pdf)$/i.test(refScript);
+                                      const isDoc = /\.(docx|doc|pptx|ppt)$/i.test(refScript);
                                       
                                       if (isPdf) {
                                         return (
@@ -777,7 +778,7 @@ export function TestPlayer({
                                               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-[10px] transition uppercase tracking-wider self-end mt-1 border border-blue-100 dark:border-blue-900/30"
                                             >
                                               <Download size={12} />
-                                              Download PDF ({test.referenceScript.split('/').pop()})
+                                              Download PDF ({refScript.split('/').pop()})
                                             </button>
                                           </div>
                                         );
@@ -902,10 +903,11 @@ export function TestPlayer({
               )}
               {q.type === "Video" && (
                 <div className="flex flex-col gap-4 mt-2">
-                  {activeTest.referenceScript && (() => {
-                    const isFile = activeTest.referenceScript.startsWith("http") || 
-                                   activeTest.referenceScript.startsWith("/") ||
-                                   (activeTest.referenceScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(activeTest.referenceScript));
+                  {(q.referenceScript || activeTest.referenceScript) && (() => {
+                    const refScript = q.referenceScript || activeTest.referenceScript;
+                    const isFile = refScript.startsWith("http") || 
+                                   refScript.startsWith("/") ||
+                                   (refScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(refScript));
                     
                     if (!isFile) {
                       return (
@@ -915,17 +917,17 @@ export function TestPlayer({
                             <span className="text-[10px] text-slate-500">Please review the reference script detailing text below before preparing your video.</span>
                           </div>
                           <div className="w-full p-4 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-y-auto max-h-[160px] whitespace-pre-wrap text-xs text-slate-800 dark:text-zinc-200 font-mono leading-relaxed">
-                            {activeTest.referenceScript}
+                            {refScript}
                           </div>
                         </div>
                       );
                     }
 
                     const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-                    const scriptUrl = activeTest.referenceScript.startsWith("http") 
-                      ? activeTest.referenceScript 
-                      : `${base}${activeTest.referenceScript}`;
-                    const ext = activeTest.referenceScript.split('.').pop()?.toLowerCase();
+                    const scriptUrl = refScript.startsWith("http") 
+                      ? refScript 
+                      : `${base}${refScript}`;
+                    const ext = refScript.split('.').pop()?.toLowerCase();
                     
                     return (
                       <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:bg-zinc-800/40 dark:border-zinc-700 flex flex-col gap-3 text-left">

@@ -24,6 +24,7 @@ import {
 import { TestBuilder } from "@/components/TestBuilder";
 import { EvaluationsDashboard } from "@/components/EvaluationsDashboard";
 import { TestPlayer } from "@/components/TestPlayer";
+import { LessonEvaluationView } from "@/components/LessonEvaluationView";
 
 // Generates a unique color for any index using HSL
 function getColor(i: number): string {
@@ -401,7 +402,7 @@ function DashboardPageContent() {
   
   // Tab within the simulated Course Details page
 
-  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "student-marks" | "settings">("player");
+  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests">("player");
 
   const [catalogSearch, setCatalogSearch] = useState("");
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<number | null>(null);
@@ -1412,26 +1413,18 @@ function DashboardPageContent() {
                           />
                         )
                       ) : selectedLesson.materialType === "PPT" ? (
-                        selectedLesson.materialLink.startsWith("/") || selectedLesson.materialLink.includes("localhost") || selectedLesson.materialLink.includes("127.0.0.1") ? (
-                          <div className="flex flex-col items-center justify-center p-8 bg-zinc-900 text-white w-full h-full text-center">
-                            <MonitorPlay size={48} className="text-blue-500 mb-3 animate-pulse" />
-                            <h4 className="font-bold text-sm text-slate-100">PowerPoint Presentation Slide</h4>
-                            <p className="text-[11px] text-zinc-400 max-w-sm mt-1 mb-4">This lesson contains PowerPoint slides. Click the button below to download and view the presentation slides.</p>
-                            <a
-                              href={selectedLesson.materialLink.startsWith("/") ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` : selectedLesson.materialLink}
-                              download
-                              className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-2.5 transition shadow-md animate-fadeIn"
-                            >
-                              Download PPT Presentation
-                            </a>
-                          </div>
-                        ) : (
-                          <iframe
-                            src={`https://docs.google.com/gview?url=${encodeURIComponent(selectedLesson.materialLink)}&embedded=true`}
-                            className="w-full h-full border-0 bg-white"
-                            title={selectedLesson.title}
-                          />
-                        )
+                        (() => {
+                          const absoluteLink = selectedLesson.materialLink.startsWith("/") 
+                            ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` 
+                            : selectedLesson.materialLink;
+                          return (
+                            <iframe
+                              src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteLink)}&embedded=true`}
+                              className="w-full h-full border-0 bg-white"
+                              title={selectedLesson.title}
+                            />
+                          );
+                        })()
                       ) : selectedLesson.materialType === "DOCX" ? (
                         <DocxViewer
                           url={selectedLesson.materialLink.startsWith("/") ? `${api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001"}${selectedLesson.materialLink}` : selectedLesson.materialLink}
@@ -1524,12 +1517,12 @@ function DashboardPageContent() {
                   </div>
                 )}
 
-                {/* Test Player / Admin Editor Section */}
-                {selectedLesson && hasTests && (
+                {/* Test Player for Learners */}
+                {!isAdminOrEmployee && selectedLesson && hasTests && (
                   <div className="mt-6 animate-fadeIn">
                     <TestPlayer
                       lessonId={selectedLesson.id}
-                      isAdmin={isAdminOrEmployee}
+                      isAdmin={false}
                       hasNextLesson={!!nextLesson}
                       onNextLesson={() => {
                         if (nextLesson) triggerNextLesson(nextLesson);
@@ -1597,6 +1590,18 @@ function DashboardPageContent() {
                       >
                         Student Marks
                       </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("evaluation")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "evaluation" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Evaluation
+                      </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("all-tests")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "all-tests" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        All Tests
+                      </button>
                     </div>
 
                     <div className="p-1">
@@ -1613,6 +1618,28 @@ function DashboardPageContent() {
                               <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{lessons.length}</span>
                             </div>
                           </div>
+                        </div>
+                      )}
+
+                      {courseDetailsTab === "all-tests" && (
+                        <div className="flex flex-col gap-6">
+                          {selectedLesson && (
+                            <TestPlayer
+                              lessonId={selectedLesson.id}
+                              isAdmin={true}
+                              hasNextLesson={!!nextLesson}
+                              onNextLesson={() => {
+                                if (nextLesson) triggerNextLesson(nextLesson);
+                              }}
+                              onSuccess={async () => {
+                                await loadLearnerProgress();
+                                if (selectedCourse) {
+                                  await loadCourseLessons(selectedCourse.courseId);
+                                }
+                              }}
+                              onCancel={() => setShowTestPlayer(false)}
+                            />
+                          )}
                         </div>
                       )}
 
@@ -1868,6 +1895,19 @@ function DashboardPageContent() {
                                 </tbody>
                               </table>
                             </div>
+                          )}
+                        </div>
+                      )}
+
+                      {courseDetailsTab === "evaluation" && (
+                        <div>
+                          {!selectedLesson ? (
+                            <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                              <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Evaluation</h4>
+                              <p className="text-xs text-slate-400">Please select a lesson from the playlist to evaluate student test submissions.</p>
+                            </div>
+                          ) : (
+                            <LessonEvaluationView selectedLesson={selectedLesson} courseId={selectedCourse.courseId} />
                           )}
                         </div>
                       )}
