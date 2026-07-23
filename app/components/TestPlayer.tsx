@@ -4,6 +4,7 @@ import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDow
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
+import { ConfirmModal } from "./ConfirmModal";
 
 function DocxViewer({ url }: { url: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +81,8 @@ export function TestPlayer({
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [deleteModalTestId, setDeleteModalTestId] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [submissions, setSubmissions] = useState<Record<number, any>>({});
   const [reviewSubmission, setReviewSubmission] = useState<any | null>(null);
   const [aiFeedbackData, setAiFeedbackData] = useState<any | null>(null);
@@ -328,47 +331,25 @@ export function TestPlayer({
 
   const deleteTest = async (e: React.MouseEvent, testId: number) => {
     e.stopPropagation();
-    toast.custom((t) => (
-      <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full bg-white dark:bg-zinc-900 shadow-xl rounded-2xl pointer-events-auto flex flex-col border border-slate-200 dark:border-zinc-800 p-4`}>
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-red-50 dark:bg-red-950/30 rounded-full shrink-0">
-            <AlertTriangle className="text-red-500" size={20} />
-          </div>
-          <div>
-            <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-sm">Delete Test?</h4>
-            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
-              Are you sure you want to delete this test? All questions and submissions will be permanently lost.
-            </p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 mt-4 border-t border-slate-100 dark:border-zinc-800/80 pt-3">
-          <button 
-            onClick={() => toast.dismiss(t.id)}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={async () => {
-              toast.dismiss(t.id);
-              try {
-                await api.delete(`/tests/${testId}`);
-                toast.success("Test deleted successfully");
-                await fetchTests();
-                if (externalTest && externalTest.id === testId) {
-                  window.location.reload(); 
-                }
-              } catch (err: any) {
-                toast.error(err.response?.data?.message || "Failed to delete test.");
-              }
-            }}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition shadow-sm shadow-red-600/20"
-          >
-            Confirm Delete
-          </button>
-        </div>
-      </div>
-    ), { duration: Infinity });
+    setDeleteModalTestId(testId);
+  };
+
+  const confirmDeleteTest = async () => {
+    if (deleteModalTestId === null) return;
+    setIsDeleting(true);
+    try {
+      await api.delete(`/tests/${deleteModalTestId}`);
+      toast.success("Test deleted successfully");
+      await fetchTests();
+      if (externalTest && externalTest.id === deleteModalTestId) {
+        window.location.reload(); 
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to delete test.");
+    } finally {
+      setIsDeleting(false);
+      setDeleteModalTestId(null);
+    }
   };
 
   const toggleCorrectAnswer = (opt: string) => {
@@ -963,6 +944,15 @@ export function TestPlayer({
             </div>
           ))
         )}
+      <ConfirmModal
+        isOpen={deleteModalTestId !== null}
+        title="Delete Test?"
+        message="Are you sure you want to delete this test? All questions and submissions will be permanently lost."
+        onConfirm={confirmDeleteTest}
+        onCancel={() => setDeleteModalTestId(null)}
+        confirmText="Confirm Delete"
+        isLoading={isDeleting}
+      />
       </div>
     );
   }

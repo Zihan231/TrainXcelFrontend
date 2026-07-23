@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useUser } from "@/hooks/useUser";
 import { useTheme } from "@/context/ThemeContext";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { useCourses, Course, Lesson, UserProfile } from "@/hooks/useCourses";
 import { api } from "@/libs/api";
 import {
@@ -574,7 +575,7 @@ function DashboardPageContent() {
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
   const [isMarksLoading, setIsMarksLoading] = useState(false);
 
-  const lastResetRef = useRef<string | null>(null);
+  const lastResetRef = useRef<string | null>(resetTrigger);
 
   // Reset deep layout/navigation states whenever the sidebar reset trigger changes (sidebar clicked)
   useEffect(() => {
@@ -584,6 +585,7 @@ function DashboardPageContent() {
       setSelectedLesson(null);
       setShowTestPlayer(false);
       setSelectedStandaloneExam(null);
+      setCourseLessons([]);
       setEditingLesson(null);
       setCourseDetailsTab("player");
     }
@@ -4893,60 +4895,7 @@ interface ConfirmModalProps {
   isLoading?: boolean;
 }
 
-function ConfirmModal({
-  isOpen,
-  title,
-  message,
-  onConfirm,
-  onCancel,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
-  isLoading = false,
-}: ConfirmModalProps) {
-  if (!isOpen) return null;
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn"
-      onMouseDown={(e) => {
-        // Prevent any interaction with the create-course modal behind.
-        e.stopPropagation();
-      }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50">{title}</h3>
-        <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">{message}</p>
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            disabled={isLoading}
-            className="rounded-xl border border-slate-200 bg-transparent px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {cancelText}
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isLoading}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isLoading ? (
-              <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Processing...
-              </>
-            ) : (
-              confirmText
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function Card({ title, subtitle, icon, className = "", children }: {
   title: string;
