@@ -1202,20 +1202,20 @@ export function TestPlayer({
                       
                       return (
                         <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 flex flex-col md:flex-row gap-6 items-stretch">
-                          {/* Video Section */}
-                          <div className="shrink-0 flex flex-col gap-1">
-                            <span className="text-slate-500 text-xs font-bold">Your Video Answer:</span>
-                            <video 
-                              src={(() => {
-                                const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-                                return ans.providedAnswer.startsWith("http") 
-                                  ? ans.providedAnswer 
-                                  : `${base}${ans.providedAnswer}`;
-                              })()} 
-                              controls 
-                              className="w-full max-w-[180px] rounded-lg border border-slate-200 dark:border-zinc-700 bg-black" 
-                            />
-                          </div>
+                              {/* Video Section */}
+                              <div className="shrink-0 flex flex-col gap-1">
+                                <span className="text-slate-500 text-xs font-bold">Your Video Answer:</span>
+                                <video 
+                                  src={(() => {
+                                    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                                    return ans.providedAnswer.startsWith("http") 
+                                      ? ans.providedAnswer 
+                                      : `${base}${ans.providedAnswer}`;
+                                  })()} 
+                                  controls 
+                                  className="w-full max-w-[320px] rounded-lg border border-slate-200 dark:border-zinc-700 bg-black" 
+                                />
+                              </div>
 
                           {/* Evaluation Details Section */}
                           <div className="flex-1 flex flex-col gap-2 justify-center min-w-0">

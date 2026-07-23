@@ -422,6 +422,8 @@ function DashboardPageContent() {
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<number | null>(null);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [isDeletingCategoryId, setIsDeletingCategoryId] = useState<number | null>(null);
+  const [reviewStudentSubmission, setReviewStudentSubmission] = useState<any | null>(null);
+  const [isReviewLoading, setIsReviewLoading] = useState<number | null>(null);
   const [deletedLessonDetails, setDeletedLessonDetails] = useState<any | null>(null);
   const [showEmployeePassword, setShowEmployeePassword] = useState(false);
 
@@ -599,6 +601,18 @@ function DashboardPageContent() {
       setIsMarksLoading(false);
     }
   }, [selectedLesson]);
+
+  const handleViewSubmissionDetails = async (submissionId: number) => {
+    setIsReviewLoading(submissionId);
+    try {
+      const res = await api.get(`/tests/submissions/${submissionId}`);
+      setReviewStudentSubmission(res.data);
+    } catch (err) {
+      toast.error("Failed to load submission details");
+    } finally {
+      setIsReviewLoading(null);
+    }
+  };
 
   useEffect(() => {
     if (courseDetailsTab === "student-marks" && selectedLesson) {
@@ -1595,7 +1609,7 @@ function DashboardPageContent() {
                       {/* Bottom-right Fullscreen Trigger */}
                       <button
                         onClick={toggleFullScreen}
-                        className="absolute bottom-4 right-4 z-15 flex h-8 w-8 items-center justify-center rounded-lg bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm transition"
+                        className="absolute bottom-4 right-4 z-20 flex h-8 w-8 items-center justify-center rounded-lg bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm transition"
                         title="Toggle Fullscreen"
                       >
                         <Maximize2 size={16} />
@@ -2140,22 +2154,41 @@ function DashboardPageContent() {
                                     <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Student Name</th>
                                     <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Email</th>
                                     <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">User ID</th>
-                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Status</th>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Test Name</th>
                                     <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-right">Marks</th>
+                                    <th className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-right">Actions</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {studentMarks.map((sub: any) => (
                                     <tr key={sub.id} className="border-b border-slate-100 dark:border-zinc-800">
-                                      <td className="py-3 px-4 text-sm font-semibold text-slate-900 dark:text-zinc-100">{sub.user?.name}</td>
+                                      <td className="py-3 px-4">
+                                        <div className="text-sm font-bold text-slate-800 dark:text-zinc-100">{sub.user?.name}</div>
+                                      </td>
                                       <td className="py-3 px-4 text-sm text-slate-500 dark:text-zinc-400">{sub.user?.email}</td>
-                                      <td className="py-3 px-4 text-sm font-mono text-slate-500 dark:text-zinc-400">{sub.user?.userId}</td>
-                                      <td className="py-3 px-4 text-xs">
-                                        <span className={`inline-block rounded-full px-2.5 py-0.5 font-bold uppercase tracking-wider ${sub.status === 'Evaluated' ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'}`}>
-                                          {sub.status}
+                                      <td className="py-3 px-4">
+                                        <span className="px-2 py-1 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 font-mono text-xs font-semibold tracking-wide">
+                                          {sub.user?.userId}
                                         </span>
                                       </td>
-                                      <td className="py-3 px-4 text-sm font-bold text-slate-900 dark:text-zinc-100 text-right">{sub.marksObtained}</td>
+                                      <td className="py-3 px-4">
+                                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 rounded-full text-xs font-bold border border-emerald-100 dark:border-emerald-900/30 whitespace-nowrap">
+                                          {sub.test?.title || "Unknown"}
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-right">
+                                        <span className="text-base font-black text-blue-600 dark:text-blue-400">{sub.marksObtained}</span>
+                                      </td>
+                                      <td className="py-3 px-4 text-right">
+                                        <button
+                                          onClick={() => handleViewSubmissionDetails(sub.id)}
+                                          disabled={isReviewLoading === sub.id}
+                                          className="ml-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/30 dark:hover:bg-blue-900/50 transition border border-blue-100 dark:border-blue-900/40 disabled:opacity-50"
+                                        >
+                                          {isReviewLoading === sub.id ? <Loader2 size={12} className="animate-spin" /> : null}
+                                          View Details
+                                        </button>
+                                      </td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -4674,6 +4707,162 @@ function DashboardPageContent() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Student Marks Review Modal */}
+      {reviewStudentSubmission && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn" onClick={() => setReviewStudentSubmission(null)}>
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-1">Student Submission Details</h3>
+                <p className="text-sm text-slate-500">Student: <span className="font-semibold text-slate-700 dark:text-zinc-300">{reviewStudentSubmission.user?.name}</span> | Test: <span className="font-semibold">{reviewStudentSubmission.test?.title}</span></p>
+              </div>
+              <button onClick={() => setReviewStudentSubmission(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-850 transition">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <p className="text-sm text-slate-500 mb-6">Total Score obtained: <span className="font-bold text-blue-600 dark:text-blue-400 text-lg">{reviewStudentSubmission.marksObtained}</span> points</p>
+            <div className="flex flex-col gap-6">
+              {(reviewStudentSubmission.answers || []).map((ans: any, idx: number) => {
+                const isCQ = ans.question.type === "CQ" || ans.question.type === "Video";
+                const provided = Array.isArray(ans.providedAnswer) ? ans.providedAnswer : [ans.providedAnswer];
+                const correct = ans.question.correctAnswers || [];
+                const isCorrect = !isCQ && provided.length === correct.length && provided.every((v: string) => correct.includes(v));
+                return (
+                  <div key={ans.id} className="p-5 rounded-xl border border-slate-200 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700">
+                    <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-1">{idx + 1}. {ans.question.questionText}</h5>
+                    <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+                      <span>Total Marks: {ans.question.marks}</span>
+                      <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : (isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "text-amber-500" : "text-rose-600")}`}>
+                        Marks Awarded: {isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "Pending" : (ans.marksAwarded ?? 0)}
+                      </span>
+                    </div>
+                    {!isCQ ? (
+                      <div className="flex flex-col gap-2">
+                        {ans.question.options.map((opt: string, oIdx: number) => {
+                          const wasSelected = provided.includes(opt);
+                          const isOptCorrect = correct.includes(opt);
+                          let cls = "border-slate-200 bg-white dark:bg-zinc-900";
+                          if (wasSelected && isOptCorrect) cls = "border-green-500 bg-green-50 dark:bg-green-950/20";
+                          else if (wasSelected && !isOptCorrect) cls = "border-rose-500 bg-rose-50 dark:bg-rose-950/20";
+                          else if (!wasSelected && isOptCorrect) cls = "border-green-500";
+                          return (
+                            <div key={oIdx} className={`p-3 rounded-lg border ${cls} text-sm flex justify-between items-center`}>
+                              <span className="text-slate-700 dark:text-zinc-300">{opt}</span>
+                              <div className="flex gap-1.5 text-[10px] font-bold">
+                                {wasSelected && <span className="text-slate-400 bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">Student's Answer</span>}
+                                {isOptCorrect && <span className="text-green-600 bg-green-100 dark:bg-green-950/40 px-1.5 py-0.5 rounded">Correct</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {ans.question.type === "Video" ? (() => {
+                          let parsed: any = null;
+                          try {
+                            parsed = JSON.parse(ans.evaluatorComment);
+                          } catch (e) {}
+                          
+                          const hasAiFeedback = parsed && typeof parsed === 'object' && ('postureScore' in parsed);
+                          
+                          return (
+                            <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 flex flex-col md:flex-row gap-6 items-stretch">
+                              {/* Video Section */}
+                              <div className="shrink-0 flex flex-col gap-1">
+                                <span className="text-slate-500 text-xs font-bold">Student Video Answer:</span>
+                                <video 
+                                  src={(() => {
+                                    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                                    return ans.providedAnswer?.startsWith("http") 
+                                      ? ans.providedAnswer 
+                                      : `${base}${ans.providedAnswer}`;
+                                  })()} 
+                                  controls 
+                                  className="w-full max-w-[320px] rounded-lg border border-slate-200 dark:border-zinc-700 bg-black" 
+                                />
+                              </div>
+
+                              {/* Evaluation Details Section */}
+                              <div className="flex-1 flex flex-col gap-2 justify-center min-w-0">
+                                {hasAiFeedback ? (
+                                  <>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">
+                                        {ans.evaluatedBy === 'AI' ? 'AI Evaluation Details:' : 'Evaluator Evaluation Details:'}
+                                      </p>
+                                      <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                                        {ans.evaluatedBy === 'AI' ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-col gap-2 w-full">
+                                      <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                        <div className="w-28 shrink-0">
+                                          <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Posture & Dress</span>
+                                          <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsed.postureScore}</span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsed.postureFeedback}</p>
+                                      </div>
+                                      <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                        <div className="w-28 shrink-0">
+                                          <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Voice & Clarity</span>
+                                          <span className="text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsed.attitudeScore}</span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsed.attitudeFeedback}</p>
+                                      </div>
+                                      <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                        <div className="w-28 shrink-0">
+                                          <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Script Accuracy</span>
+                                          <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsed.accuracyScore}</span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsed.accuracyFeedback}</p>
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm w-full">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
+                                      <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                        Reviewed by Invigilator
+                                      </span>
+                                    </div>
+                                    <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment || "No feedback comments provided yet."}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })() : (
+                          <>
+                            <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 text-sm">
+                              <p className="text-slate-500 text-xs font-bold mb-1">Student Answer:</p>
+                              <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
+                            </div>
+                            {ans.evaluatorComment && (
+                              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
+                                  <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                    Reviewed by Invigilator
+                                  </span>
+                                </div>
+                                <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
