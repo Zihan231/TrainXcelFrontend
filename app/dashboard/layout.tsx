@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/hooks/useUser";
@@ -452,10 +452,20 @@ function NavItem({
   className?: string;
   onClick?: () => void;
 }) {
+  const router = useRouter();
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    onClick?.();
+    const url = new URL(href, window.location.origin);
+    url.searchParams.set("_r", Date.now().toString());
+    router.push(url.pathname + url.search);
+  };
+
   return (
     <Link
       href={href}
-      onClick={onClick}
+      onClick={handleClick}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
         active
           ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"

@@ -245,6 +245,7 @@ function DashboardPageContent() {
   const router = useRouter();
   const defaultTab = role === "admin" || role === "employee" ? "overview" : "progress";
   const currentTab = searchParams.get("tab") || defaultTab;
+  const resetTrigger = searchParams.get("_r");
   const dark = theme === "dark";
 
   const isAdminOrEmployee = role === "admin" || role === "employee";
@@ -521,6 +522,16 @@ function DashboardPageContent() {
   // Student Marks view tab states
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
   const [isMarksLoading, setIsMarksLoading] = useState(false);
+
+  // Reset deep layout/navigation states whenever the sidebar tab or reset trigger changes
+  useEffect(() => {
+    setSelectedCourse(null);
+    setSelectedLesson(null);
+    setShowTestPlayer(false);
+    setSelectedStandaloneExam(null);
+    setEditingLesson(null);
+    setCourseDetailsTab("player");
+  }, [currentTab, resetTrigger]);
 
   const loadStudentMarks = useCallback(async () => {
     if (!selectedLesson) return;
