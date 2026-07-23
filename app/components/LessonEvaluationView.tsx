@@ -11,9 +11,11 @@ import toast from "react-hot-toast";
 interface LessonEvaluationViewProps {
   selectedLesson: any;
   courseId: number | string;
+  courseLessons?: any[];
 }
 
-export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluationViewProps) {
+export function LessonEvaluationView({ selectedLesson, courseId, courseLessons = [] }: LessonEvaluationViewProps) {
+  const [activeLesson, setActiveLesson] = useState<any>(selectedLesson);
   const [tests, setTests] = useState<any[]>([]);
   const [pendingCounts, setPendingCounts] = useState<Record<number, number>>({});
   const [loadingTests, setLoadingTests] = useState(true);
@@ -31,33 +33,41 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
   const SUBS_PER_PAGE = 5;
 
   // Form states for CQ evaluation
-  const [cqMarks, setCqMarks] = useState<Record<number, number>>({});
+  const [cqMarks, setCqMarks] = useState<Record<number, number | string>>({});
   const [cqComments, setCqComments] = useState<Record<number, string>>({});
 
   // Form states for 3-category Video evaluation
-  const [postureScores, setPostureScores] = useState<Record<number, number>>({});
+  const [postureScores, setPostureScores] = useState<Record<number, number | string>>({});
   const [postureFeedbacks, setPostureFeedbacks] = useState<Record<number, string>>({});
   
-  const [attitudeScores, setAttitudeScores] = useState<Record<number, number>>({});
+  const [attitudeScores, setAttitudeScores] = useState<Record<number, number | string>>({});
   const [attitudeFeedbacks, setAttitudeFeedbacks] = useState<Record<number, string>>({});
 
-  const [accuracyScores, setAccuracyScores] = useState<Record<number, number>>({});
+  const [accuracyScores, setAccuracyScores] = useState<Record<number, number | string>>({});
   const [accuracyFeedbacks, setAccuracyFeedbacks] = useState<Record<number, string>>({});
 
   const [submittingEval, setSubmittingEval] = useState(false);
 
   useEffect(() => {
     if (selectedLesson?.id) {
-      fetchLessonTests();
+      setActiveLesson(selectedLesson);
     }
   }, [selectedLesson?.id]);
+
+  useEffect(() => {
+    if (activeLesson?.id) {
+      setSelectedTest(null);
+      setSelectedSubmission(null);
+      fetchLessonTests();
+    }
+  }, [activeLesson?.id]);
 
   const fetchLessonTests = async () => {
     try {
       setLoadingTests(true);
       const [testsRes, pendingRes] = await Promise.all([
-        api.get(`/tests/lesson/${selectedLesson.id}`),
-        api.get(`/tests/evaluations/pending?lessonId=${selectedLesson.id}`),
+        api.get(`/tests/lesson/${activeLesson.id}`),
+        api.get(`/tests/evaluations/pending?lessonId=${activeLesson.id}`),
       ]);
 
       const rawTests = testsRes.data || [];
@@ -98,19 +108,21 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
 
   const handleOpenSubmission = (sub: any) => {
     setSelectedSubmission(sub);
-    const initialCqMarks: Record<number, number> = {};
+    const initialCqMarks: Record<number, number | string> = {};
     const initialCqComments: Record<number, string> = {};
 
-    const initialPosScores: Record<number, number> = {};
+    const initialPosScores: Record<number, number | string> = {};
     const initialPosFeedbacks: Record<number, string> = {};
-    const initialAttScores: Record<number, number> = {};
+    const initialAttScores: Record<number, number | string> = {};
     const initialAttFeedbacks: Record<number, string> = {};
-    const initialAccScores: Record<number, number> = {};
+    const initialAccScores: Record<number, number | string> = {};
     const initialAccFeedbacks: Record<number, string> = {};
 
     sub.answers.forEach((ans: any) => {
+      const isPending = sub.status === "Pending Evaluation";
+      
       if (ans.question.type === "CQ") {
-        initialCqMarks[ans.id] = ans.marksAwarded ?? 0;
+        initialCqMarks[ans.id] = isPending ? "" : (ans.marksAwarded ?? "");
         initialCqComments[ans.id] = ans.evaluatorComment || "";
       } else if (ans.question.type === "Video") {
         let parsed: any = null;
@@ -122,13 +134,13 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
           parsed = null;
         }
 
-        initialPosScores[ans.id] = parsed?.postureScore ?? 0;
+        initialPosScores[ans.id] = isPending ? "" : (parsed?.postureScore ?? "");
         initialPosFeedbacks[ans.id] = parsed?.postureFeedback ?? "";
 
-        initialAttScores[ans.id] = parsed?.attitudeScore ?? 0;
+        initialAttScores[ans.id] = isPending ? "" : (parsed?.attitudeScore ?? "");
         initialAttFeedbacks[ans.id] = parsed?.attitudeFeedback ?? "";
 
-        initialAccScores[ans.id] = parsed?.accuracyScore ?? 0;
+        initialAccScores[ans.id] = isPending ? "" : (parsed?.accuracyScore ?? "");
         initialAccFeedbacks[ans.id] = parsed?.accuracyFeedback ?? "";
       }
     });
@@ -154,10 +166,11 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
       const qNum = i + 1;
 
       if (ans.question.type === "CQ") {
-        const marks = cqMarks[ans.id];
+        const marksRaw = cqMarks[ans.id];
+        const marks = marksRaw === "" || marksRaw === undefined || marksRaw === null ? NaN : Number(marksRaw);
         const comment = cqComments[ans.id];
 
-        if (marks === undefined || marks === null || isNaN(marks)) {
+        if (isNaN(marks)) {
           toast.error(`Please enter valid marks for Question ${qNum} (CQ).`);
           return;
         }
@@ -165,64 +178,53 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
           toast.error(`Marks for Question ${qNum} (CQ) must be between 0 and ${ans.question.marks}.`);
           return;
         }
-        if (!comment || comment.trim() === "") {
-          toast.error(`Please enter an evaluator feedback comment for Question ${qNum} (CQ).`);
-          return;
-        }
 
         evaluations.push({
           submissionAnswerId: ans.id,
           marksAwarded: Number(marks),
-          evaluatorComment: comment.trim(),
+          evaluatorComment: (comment && comment.trim()) ? comment.trim() : "No feedback",
         });
       } else if (ans.question.type === "Video") {
-        const posScore = postureScores[ans.id];
-        const posFb = postureFeedbacks[ans.id];
+        const posRaw = postureScores[ans.id];
+        const attRaw = attitudeScores[ans.id];
+        const accRaw = accuracyScores[ans.id];
 
-        const attScore = attitudeScores[ans.id];
-        const attFb = attitudeFeedbacks[ans.id];
+        const posScore = posRaw === "" || posRaw === undefined || posRaw === null ? NaN : Number(posRaw);
+        const attScore = attRaw === "" || attRaw === undefined || attRaw === null ? NaN : Number(attRaw);
+        const accScore = accRaw === "" || accRaw === undefined || accRaw === null ? NaN : Number(accRaw);
 
-        const accScore = accuracyScores[ans.id];
-        const accFb = accuracyFeedbacks[ans.id];
+        const posFeed = postureFeedbacks[ans.id];
+        const attFeed = attitudeFeedbacks[ans.id];
+        const accFeed = accuracyFeedbacks[ans.id];
 
-        const maxMarks = ans.question.marks || 15;
+        const postureMax = ans.question.postureMarks ?? (ans.question.marks / 3);
+        const voiceMax = ans.question.voiceMarks ?? (ans.question.marks / 3);
+        const accuracyMax = ans.question.accuracyMarks ?? (ans.question.marks / 3);
 
-        if (posScore === undefined || posScore < 0 || posScore > maxMarks) {
-          toast.error(`Posture & Dress score for Question ${qNum} must be between 0 and ${maxMarks}.`);
-          return;
-        }
-        if (!posFb || posFb.trim() === "") {
-          toast.error(`Please enter Posture & Dress feedback for Question ${qNum}.`);
-          return;
-        }
-
-        if (attScore === undefined || attScore < 0 || attScore > maxMarks) {
-          toast.error(`Voice Tone & Clarity score for Question ${qNum} must be between 0 and ${maxMarks}.`);
-          return;
-        }
-        if (!attFb || attFb.trim() === "") {
-          toast.error(`Please enter Voice Tone & Clarity feedback for Question ${qNum}.`);
+        if (isNaN(posScore) || posScore < 0 || posScore > postureMax) {
+          toast.error(`Posture score for Video Q${qNum} must be between 0 and ${postureMax}`);
           return;
         }
 
-        if (accScore === undefined || accScore < 0 || accScore > maxMarks) {
-          toast.error(`Script Accuracy score for Question ${qNum} must be between 0 and ${maxMarks}.`);
-          return;
-        }
-        if (!accFb || accFb.trim() === "") {
-          toast.error(`Please enter Script Accuracy feedback for Question ${qNum}.`);
+        if (isNaN(attScore) || attScore < 0 || attScore > voiceMax) {
+          toast.error(`Voice/Attitude score for Video Q${qNum} must be between 0 and ${voiceMax}`);
           return;
         }
 
-        const totalVideoMarks = Math.round((((Number(posScore) + Number(attScore) + Number(accScore)) / 3)) * 100) / 100;
+        if (isNaN(accScore) || accScore < 0 || accScore > accuracyMax) {
+          toast.error(`Script Accuracy score for Video Q${qNum} must be between 0 and ${accuracyMax}`);
+          return;
+        }
+
+        const totalVideoMarks = Math.round((Number(posScore) + Number(attScore) + Number(accScore)) * 100) / 100;
 
         const structuredComment = JSON.stringify({
           postureScore: Number(posScore),
-          postureFeedback: posFb.trim(),
+          postureFeedback: (posFeed && posFeed.trim()) ? posFeed.trim() : "No feedback",
           attitudeScore: Number(attScore),
-          attitudeFeedback: attFb.trim(),
+          attitudeFeedback: (attFeed && attFeed.trim()) ? attFeed.trim() : "No feedback",
           accuracyScore: Number(accScore),
-          accuracyFeedback: accFb.trim(),
+          accuracyFeedback: (accFeed && accFeed.trim()) ? accFeed.trim() : "No feedback",
           overallScore: totalVideoMarks,
         });
 
@@ -267,6 +269,14 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
   // Pagination for submissions
   const totalSubPages = Math.max(1, Math.ceil(submissions.length / SUBS_PER_PAGE));
   const paginatedSubmissions = submissions.slice((subPage - 1) * SUBS_PER_PAGE, subPage * SUBS_PER_PAGE);
+
+  if (!activeLesson) {
+    return (
+      <div className="p-10 text-center text-slate-400 text-xs bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        No lessons found for this course. Add lessons first to enable evaluation.
+      </div>
+    );
+  }
 
   if (loadingTests) {
     return (
@@ -320,6 +330,123 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
             </span>
           </div>
 
+          {/* MCQ QUESTIONS - READ ONLY (Auto Evaluated) */}
+          {(() => {
+            const mcqAnswers = selectedSubmission.answers.filter((a: any) => a.question.type === "MCQ");
+            if (mcqAnswers.length === 0) return null;
+            return (
+              <div className="flex flex-col gap-4 mb-8">
+                <h4 className="font-extrabold text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2 border-b pb-2.5 border-emerald-100 dark:border-emerald-950">
+                  <CheckCircle size={18} /> Multiple Choice Questions – Auto Evaluated ({mcqAnswers.length})
+                </h4>
+                {mcqAnswers.map((ans: any, idx: number) => {
+                  const studentAnswers: string[] = (() => {
+                    try {
+                      const parsed = JSON.parse(ans.providedAnswer);
+                      return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+                    } catch {
+                      return ans.providedAnswer ? [String(ans.providedAnswer)] : [];
+                    }
+                  })();
+                  const correctAnswers: string[] = (ans.question.correctAnswers || []).map(String);
+                  
+                  const isCorrect = correctAnswers.length > 0 &&
+                    studentAnswers.length === correctAnswers.length &&
+                    studentAnswers.every((a: string) => correctAnswers.includes(a));
+                  const marksAwarded = ans.marksAwarded ?? (isCorrect ? ans.question.marks : 0);
+
+                  const options: string[] = ans.question.options || [];
+
+                  return (
+                    <div key={ans.id} className={`p-5 rounded-2xl border flex flex-col gap-4 ${isCorrect ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/10" : "border-rose-200 dark:border-rose-900/50 bg-rose-50/20 dark:bg-rose-950/10"}`}>
+                      <div className="flex justify-between items-start gap-3 border-b border-slate-200/50 dark:border-zinc-800/50 pb-3">
+                        <p className="text-sm font-bold text-slate-800 dark:text-zinc-100 flex-1">
+                          Q{idx + 1}: {ans.question.questionText}
+                        </p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${isCorrect ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" : "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"}`}>
+                            {isCorrect ? "✓ Correct" : "✗ Incorrect"}
+                          </span>
+                          <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full border border-slate-200 dark:border-zinc-700">
+                            {marksAwarded} / {ans.question.marks} marks
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2.5 mt-1">
+                        {options.length > 0 ? (
+                          options.map((opt: string, oIdx: number) => {
+                            const optStr = String(opt);
+                            const isStudentChoice = studentAnswers.includes(optStr);
+                            const isActualCorrect = correctAnswers.includes(optStr);
+
+                            let borderClass = "border-slate-200 dark:border-zinc-700";
+                            let bgClass = "bg-white dark:bg-zinc-900";
+                            let textClass = "text-slate-700 dark:text-zinc-300";
+                            let icon = null;
+
+                            if (isActualCorrect && isStudentChoice) {
+                              borderClass = "border-emerald-500 dark:border-emerald-600";
+                              bgClass = "bg-emerald-50 dark:bg-emerald-900/20";
+                              textClass = "text-emerald-800 dark:text-emerald-200 font-semibold";
+                              icon = <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-auto text-xs">✓ Correct Choice</span>;
+                            } else if (isActualCorrect && !isStudentChoice) {
+                              borderClass = "border-emerald-300 border-dashed dark:border-emerald-800/60";
+                              bgClass = "bg-emerald-50/50 dark:bg-emerald-900/10";
+                              textClass = "text-emerald-700 dark:text-emerald-400";
+                              icon = <span className="text-emerald-500 dark:text-emerald-500 italic ml-auto text-xs">Should have selected</span>;
+                            } else if (!isActualCorrect && isStudentChoice) {
+                              borderClass = "border-rose-500 dark:border-rose-600";
+                              bgClass = "bg-rose-50 dark:bg-rose-900/20";
+                              textClass = "text-rose-800 dark:text-rose-200 font-semibold";
+                              icon = <span className="text-rose-600 dark:text-rose-400 font-bold ml-auto text-xs">✗ Wrong Choice</span>;
+                            }
+
+                            return (
+                              <div key={oIdx} className={`flex items-center gap-3 p-3 rounded-xl border ${borderClass} ${bgClass} transition-colors`}>
+                                <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${isStudentChoice ? 'bg-blue-600 border-blue-600' : 'bg-transparent border-slate-300 dark:border-zinc-600'}`}>
+                                  {isStudentChoice && <CheckCircle size={12} className="text-white" />}
+                                </div>
+                                <span className={`text-sm ${textClass}`}>{optStr}</span>
+                                {icon}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          // Fallback if no options are available in the question data
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider mb-1.5">Student's Answer</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {studentAnswers.length > 0 ? studentAnswers.map((a: string, i: number) => (
+                                  <span key={i} className={`px-2.5 py-1 rounded-lg border font-semibold ${correctAnswers.includes(a) ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800" : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800"}`}>
+                                    {a}
+                                  </span>
+                                )) : (
+                                  <span className="text-slate-400 italic">No answer provided</span>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider mb-1.5">Correct Answer(s)</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {correctAnswers.map((a: string, i: number) => (
+                                  <span key={i} className="px-2.5 py-1 rounded-lg border font-semibold bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800">
+                                    {a}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           {/* CQ QUESTIONS EVALUATION */}
           {cqAnswers.length > 0 && (
             <div className="flex flex-col gap-6 mb-8">
@@ -347,23 +474,27 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                         Marks Awarded <span className="text-rose-500">*</span>
                       </label>
                       <input
-                        type="number"
-                        min={0}
-                        max={ans.question.marks}
-                        value={cqMarks[ans.id] ?? 0}
-                        onChange={(e) => setCqMarks({ ...cqMarks, [ans.id]: Number(e.target.value) })}
+                        type="text"
+                        placeholder="0"
+                        value={cqMarks[ans.id] ?? ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                            setCqMarks({ ...cqMarks, [ans.id]: val });
+                          }
+                        }}
                         className="p-2.5 border border-slate-200 dark:border-zinc-700 rounded-xl bg-slate-50 dark:bg-zinc-800 text-xs font-bold focus:border-indigo-600 focus:outline-none"
                       />
                     </div>
                     <div className="md:col-span-3 flex flex-col gap-1.5">
                       <label className="text-[11px] font-bold text-slate-600 dark:text-zinc-300">
-                        Evaluator Feedback Comment <span className="text-rose-500">*</span>
+                        Evaluator Feedback Comment
                       </label>
                       <input
                         type="text"
                         value={cqComments[ans.id] || ""}
                         onChange={(e) => setCqComments({ ...cqComments, [ans.id]: e.target.value })}
-                        placeholder="Write detailed feedback comment for learner (required)..."
+                        placeholder="No feedback"
                         className="p-2.5 border border-slate-200 dark:border-zinc-700 rounded-xl bg-slate-50 dark:bg-zinc-800 text-xs focus:border-indigo-600 focus:outline-none w-full"
                       />
                     </div>
@@ -385,8 +516,11 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                   ? ans.providedAnswer
                   : `${base}${ans.providedAnswer}`;
 
-                const maxMarks = ans.question.marks || 15;
-                const currentTotal = Math.round(((((postureScores[ans.id] || 0) + (attitudeScores[ans.id] || 0) + (accuracyScores[ans.id] || 0)) / 3)) * 100) / 100;
+                const postureMax = ans.question.postureMarks ?? (ans.question.marks / 3);
+                const voiceMax = ans.question.voiceMarks ?? (ans.question.marks / 3);
+                const accuracyMax = ans.question.accuracyMarks ?? (ans.question.marks / 3);
+                const totalMax = postureMax + voiceMax + accuracyMax;
+                const currentTotal = Math.round(((Number(postureScores[ans.id]) || 0) + (Number(attitudeScores[ans.id]) || 0) + (Number(accuracyScores[ans.id]) || 0)) * 100) / 100;
 
                 return (
                   <div key={ans.id} className="p-5 rounded-2xl border border-purple-100 dark:border-purple-950/60 bg-purple-50/20 dark:bg-purple-950/10 flex flex-col gap-5">
@@ -398,7 +532,7 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                         <p className="text-[10px] text-slate-400 mt-0.5">Method: {ans.question.evaluationType || "AI"}</p>
                       </div>
                       <span className="text-xs font-bold text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 px-3 py-1.5 rounded-full border border-purple-200 dark:border-purple-800">
-                        Total Video Score: {currentTotal} / {maxMarks}
+                        Total Video Score: {currentTotal} / {totalMax}
                       </span>
                     </div>
 
@@ -420,23 +554,26 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                       {/* 1. Posture & Dress Code */}
                       <div className="p-3.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center">
                         <div className="w-48 shrink-0">
-                          <label className="text-xs font-bold text-blue-900 dark:text-blue-300 block">1. Posture &amp; Dress Code <span className="text-rose-500">*</span></label>
-                          <span className="text-[10px] text-blue-600 dark:text-blue-400">Score range: 0 - {maxMarks}</span>
+                          <label className="text-xs font-bold text-blue-900 dark:text-blue-300 block">1. Posture &amp; Dress Code</label>
+                          <span className="text-[10px] text-blue-600 dark:text-blue-400">Score range: 0 - {postureMax}</span>
                         </div>
                         <input
-                          type="number"
-                          min={0}
-                          max={maxMarks}
-                          step="0.1"
-                          value={postureScores[ans.id] ?? 0}
-                          onChange={(e) => setPostureScores({ ...postureScores, [ans.id]: Number(e.target.value) })}
+                          type="text"
+                          placeholder="0"
+                          value={postureScores[ans.id] ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              setPostureScores({ ...postureScores, [ans.id]: val });
+                            }
+                          }}
                           className="w-20 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-blue-600 focus:outline-none"
                         />
                         <input
                           type="text"
                           value={postureFeedbacks[ans.id] || ""}
                           onChange={(e) => setPostureFeedbacks({ ...postureFeedbacks, [ans.id]: e.target.value })}
-                          placeholder="Posture & dress code evaluation comment (required)..."
+                          placeholder="No feedback"
                           className="flex-1 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-blue-600 focus:outline-none w-full"
                         />
                       </div>
@@ -444,23 +581,26 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                       {/* 2. Voice Tone & Clarity */}
                       <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/40 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center">
                         <div className="w-48 shrink-0">
-                          <label className="text-xs font-bold text-purple-900 dark:text-purple-300 block">2. Voice Tone &amp; Clarity <span className="text-rose-500">*</span></label>
-                          <span className="text-[10px] text-purple-600 dark:text-purple-400">Score range: 0 - {maxMarks}</span>
+                          <label className="text-xs font-bold text-purple-900 dark:text-purple-300 block">2. Voice Tone &amp; Clarity</label>
+                          <span className="text-[10px] text-purple-600 dark:text-purple-400">Score range: 0 - {voiceMax}</span>
                         </div>
                         <input
-                          type="number"
-                          min={0}
-                          max={maxMarks}
-                          step="0.1"
-                          value={attitudeScores[ans.id] ?? 0}
-                          onChange={(e) => setAttitudeScores({ ...attitudeScores, [ans.id]: Number(e.target.value) })}
+                          type="text"
+                          placeholder="0"
+                          value={attitudeScores[ans.id] ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              setAttitudeScores({ ...attitudeScores, [ans.id]: val });
+                            }
+                          }}
                           className="w-20 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-purple-600 focus:outline-none"
                         />
                         <input
                           type="text"
                           value={attitudeFeedbacks[ans.id] || ""}
                           onChange={(e) => setAttitudeFeedbacks({ ...attitudeFeedbacks, [ans.id]: e.target.value })}
-                          placeholder="Voice tone & clarity evaluation comment (required)..."
+                          placeholder="No feedback"
                           className="flex-1 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-purple-600 focus:outline-none w-full"
                         />
                       </div>
@@ -468,23 +608,26 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                       {/* 3. Script Accuracy */}
                       <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center">
                         <div className="w-48 shrink-0">
-                          <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">3. Script Accuracy <span className="text-rose-500">*</span></label>
-                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Score range: 0 - {maxMarks}</span>
+                          <label className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">3. Script Accuracy</label>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Score range: 0 - {accuracyMax}</span>
                         </div>
                         <input
-                          type="number"
-                          min={0}
-                          max={maxMarks}
-                          step="0.1"
-                          value={accuracyScores[ans.id] ?? 0}
-                          onChange={(e) => setAccuracyScores({ ...accuracyScores, [ans.id]: Number(e.target.value) })}
+                          type="text"
+                          placeholder="0"
+                          value={accuracyScores[ans.id] ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              setAccuracyScores({ ...accuracyScores, [ans.id]: val });
+                            }
+                          }}
                           className="w-20 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-emerald-600 focus:outline-none"
                         />
                         <input
                           type="text"
                           value={accuracyFeedbacks[ans.id] || ""}
                           onChange={(e) => setAccuracyFeedbacks({ ...accuracyFeedbacks, [ans.id]: e.target.value })}
-                          placeholder="Script accuracy evaluation comment (required)..."
+                          placeholder="No feedback"
                           className="flex-1 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-emerald-600 focus:outline-none w-full"
                         />
                       </div>
@@ -497,7 +640,7 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
 
           {/* SAVE EVALUATION BUTTON */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-5 border-t border-slate-100 dark:border-zinc-800">
-            <span className="text-[11px] text-slate-400 font-medium">* All mark inputs and feedback comment fields are mandatory before saving.</span>
+            <span className="text-[11px] text-slate-400 font-medium">All mark inputs are required. Feedback comments are optional (defaults to "No feedback" if left blank).</span>
             <div className="flex gap-3 w-full sm:w-auto">
               <button
                 onClick={() => setSelectedSubmission(null)}
@@ -613,7 +756,7 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                                 onClick={() => handleOpenSubmission(sub)}
                                 className="px-3.5 py-1.5 rounded-xl font-bold text-xs transition inline-flex items-center gap-1 shadow-sm bg-blue-600 hover:bg-blue-700 text-white"
                               >
-                                Evaluate Answers <ChevronRight size={14} />
+                                Evaluate<ChevronRight size={14} />
                               </button>
                             ) : (
                               <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500 italic px-3 py-1">
@@ -666,12 +809,30 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
         <div className="flex items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-zinc-800/80">
           <div>
             <h4 className="font-extrabold text-slate-900 dark:text-zinc-100 text-lg">
-              Lesson Evaluation Workspace: {selectedLesson.title}
+              Lesson Evaluation Workspace
             </h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              Review and grade pending student CQ &amp; Video submissions for this lesson.
+              Review and grade pending student CQ &amp; Video submissions for the selected lesson.
             </p>
           </div>
+          {/* LESSON SELECTOR DROPDOWN */}
+          {courseLessons.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold text-slate-500 dark:text-zinc-400 whitespace-nowrap">Lesson:</label>
+              <select
+                value={activeLesson?.id ?? ""}
+                onChange={(e) => {
+                  const lesson = courseLessons.find((l: any) => String(l.id) === e.target.value);
+                  if (lesson) setActiveLesson(lesson);
+                }}
+                className="text-xs rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 px-3 py-2 focus:border-blue-500 focus:outline-none min-w-[180px] max-w-[280px] font-semibold shadow-sm"
+              >
+                {courseLessons.map((l: any) => (
+                  <option key={l.id} value={l.id}>{l.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* IF NO PENDING EVALUATIONS: SHOW CLEAN STATE */}
@@ -751,7 +912,7 @@ export function LessonEvaluationView({ selectedLesson, courseId }: LessonEvaluat
                               onClick={() => handleSelectTest(test)}
                               className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl text-xs transition inline-flex items-center gap-1.5 shadow-md"
                             >
-                              Evaluate Answers ({pCount}) <ChevronRight size={14} />
+                              View Submissions ({pCount}) <ChevronRight size={14} />
                             </button>
                           ) : (
                             <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500 italic px-3 py-1">

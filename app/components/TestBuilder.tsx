@@ -7,7 +7,10 @@ interface Question {
   id: string; // temp id for UI
   type: "MCQ" | "CQ" | "Video";
   questionText: string;
-  marks: number;
+  marks: number | string;
+  postureMarks?: number | string;
+  voiceMarks?: number | string;
+  accuracyMarks?: number | string;
   options: string[]; // for MCQ
   correctAnswers: string[]; // for MCQ
   evaluationType?: "AI" | "Manual";
@@ -68,7 +71,7 @@ export function TestBuilder({
         id: Math.random().toString(36).substring(7),
         type,
         questionText: "",
-        marks: 0,
+        marks: "",
         options: type === "MCQ" ? ["Option 1", "Option 2"] : [],
         correctAnswers: [],
         evaluationType: type === "Video" ? "AI" : undefined,
@@ -167,8 +170,20 @@ export function TestBuilder({
       const q = questions[i];
       if (!q.questionText.trim())
         return triggerError(`Question ${i + 1} must have text.`);
-      if (q.marks === 0 || !q.marks)
-        return triggerError(`Marks are required for Question ${i + 1}.`);
+      if (q.type === "Video") {
+        const pm = q.postureMarks === "" || q.postureMarks === undefined ? NaN : Number(q.postureMarks);
+        const vm = q.voiceMarks === "" || q.voiceMarks === undefined ? NaN : Number(q.voiceMarks);
+        const am = q.accuracyMarks === "" || q.accuracyMarks === undefined ? NaN : Number(q.accuracyMarks);
+        if (isNaN(pm) || pm <= 0)
+          return triggerError(`Posture marks are required for Video Question ${i + 1}.`);
+        if (isNaN(vm) || vm <= 0)
+          return triggerError(`Voice marks are required for Video Question ${i + 1}.`);
+        if (isNaN(am) || am <= 0)
+          return triggerError(`Accuracy marks are required for Video Question ${i + 1}.`);
+      } else {
+        if (q.marks === 0 || !q.marks)
+          return triggerError(`Marks are required for Question ${i + 1}.`);
+      }
       if (q.type === "MCQ") {
         if (q.options.length < 2)
           return triggerError(`MCQ Question ${i + 1} must have at least 2 options.`);
@@ -212,10 +227,26 @@ export function TestBuilder({
           testType === "Standalone" && endTime
             ? new Date(endTime).toISOString()
             : undefined,
-        questions: questions.map(({ id, ...rest }) => ({
-          ...rest,
-          type: rest.type,
-        })),
+        questions: questions.map(({ id, ...rest }) => {
+          if (rest.type === "Video") {
+            const pm = Number(rest.postureMarks) || 0;
+            const vm = Number(rest.voiceMarks) || 0;
+            const am = Number(rest.accuracyMarks) || 0;
+            return {
+              ...rest,
+              marks: pm + vm + am,
+              postureMarks: pm,
+              voiceMarks: vm,
+              accuracyMarks: am,
+              type: rest.type,
+            };
+          }
+          return {
+            ...rest,
+            marks: rest.marks === "" ? 0 : Number(rest.marks),
+            type: rest.type,
+          };
+        }),
       };
 
       await api.post("/tests", payload);
@@ -390,25 +421,80 @@ export function TestBuilder({
                   <Trash2 size={16} />
                 </button>
 
-                <div className="flex gap-2 items-center mb-3">
+                <div className="flex gap-2 items-center mb-3 flex-wrap">
                   <span className="px-2 py-1 bg-slate-200 dark:bg-zinc-700 text-xs font-bold rounded-md text-slate-700 dark:text-zinc-300">
                     Q{qIndex + 1} - {q.type}
                   </span>
-                  <div className="flex items-center gap-2 ml-auto mr-8">
-                    <label className="text-xs font-semibold text-slate-500">
-                      Marks:
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={q.marks}
-                      onChange={(e) =>
-                        updateQuestion(q.id, "marks", Number(e.target.value))
-                      }
-                      className="w-16 rounded-md border border-slate-200 px-2 py-1 text-sm text-center dark:border-zinc-700 dark:bg-zinc-900"
-                    />
-                  </div>
+                  {q.type === "Video" ? (
+                    <div className="flex items-center gap-3 ml-auto mr-8 flex-wrap">
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] font-semibold text-purple-600 dark:text-purple-400">Posture:</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 5"
+                          value={q.postureMarks === 0 ? "" : (q.postureMarks ?? "")}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              updateQuestion(q.id, "postureMarks", val);
+                            }
+                          }}
+                          className="w-14 rounded-md border border-purple-200 dark:border-purple-800 px-2 py-1 text-sm text-center dark:bg-zinc-900"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Voice:</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 5"
+                          value={q.voiceMarks === 0 ? "" : (q.voiceMarks ?? "")}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              updateQuestion(q.id, "voiceMarks", val);
+                            }
+                          }}
+                          className="w-14 rounded-md border border-blue-200 dark:border-blue-800 px-2 py-1 text-sm text-center dark:bg-zinc-900"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Script:</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 5"
+                          value={q.accuracyMarks === 0 ? "" : (q.accuracyMarks ?? "")}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              updateQuestion(q.id, "accuracyMarks", val);
+                            }
+                          }}
+                          className="w-14 rounded-md border border-emerald-200 dark:border-emerald-800 px-2 py-1 text-sm text-center dark:bg-zinc-900"
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
+                        Total: {((Number(q.postureMarks) || 0) + (Number(q.voiceMarks) || 0) + (Number(q.accuracyMarks) || 0)) || "–"}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 ml-auto mr-8">
+                      <label className="text-xs font-semibold text-slate-500">
+                        Marks:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 5"
+                        value={q.marks === 0 ? "" : q.marks}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                            updateQuestion(q.id, "marks", val);
+                          }
+                        }}
+                        className="w-16 rounded-md border border-slate-200 px-2 py-1 text-sm text-center dark:border-zinc-700 dark:bg-zinc-900"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <input

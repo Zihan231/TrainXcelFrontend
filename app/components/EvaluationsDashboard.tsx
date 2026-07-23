@@ -15,7 +15,7 @@ export function EvaluationsDashboard() {
   const ITEMS_PER_PAGE = 5;
 
   // Marks state for the currently selected submission
-  const [marks, setMarks] = useState<Record<string, number>>({});
+  const [marks, setMarks] = useState<Record<string, number | string>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -41,8 +41,9 @@ export function EvaluationsDashboard() {
     const initialComments: Record<string, string> = {};
     
     sub.answers.forEach((ans: any) => {
+      const isPending = sub.status === "Pending Evaluation";
       if (ans.question.type === "CQ" || ans.question.type === "Video") {
-        initialMarks[ans.id] = ans.marksAwarded || 0;
+        initialMarks[ans.id] = isPending ? "" : (ans.marksAwarded ?? "");
         initialComments[ans.id] = ans.evaluatorComment || "";
       }
     });
@@ -59,9 +60,10 @@ export function EvaluationsDashboard() {
       const answerIdNum = Number(ansId);
       const answerObj = selectedSubmission.answers.find((a: any) => a.id === answerIdNum);
       if (answerObj) {
-        const inputMark = Number(marks[ansId]);
+        const rawMark = marks[ansId];
+        const inputMark = rawMark === "" || rawMark === undefined || rawMark === null ? NaN : Number(rawMark);
         const maxMark = answerObj.question.marks;
-        if (inputMark < 0 || inputMark > maxMark) {
+        if (isNaN(inputMark) || inputMark < 0 || inputMark > maxMark) {
           toast.error(`Marks for "${answerObj.question.questionText}" must be between 0 and ${maxMark}.`);
           return;
         }
@@ -73,7 +75,7 @@ export function EvaluationsDashboard() {
     const evaluations = Object.keys(marks).map(answerId => ({
       submissionAnswerId: Number(answerId),
       marksAwarded: Number(marks[answerId]),
-      evaluatorComment: comments[answerId] || "",
+      evaluatorComment: (comments[answerId] && comments[answerId].trim()) ? comments[answerId].trim() : "No feedback",
     }));
 
     try {
@@ -344,17 +346,22 @@ export function EvaluationsDashboard() {
                       <div className="md:col-span-1">
                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Award Marks</label>
                         <input 
-                          type="number" min="0" max={ans.question.marks} step="0.5"
-                          value={marks[ans.id]} 
-                          onChange={(e) => setMarks({...marks, [ans.id]: Number(e.target.value)})}
+                          type="text" placeholder="0"
+                          value={marks[ans.id] ?? ""} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                              setMarks({...marks, [ans.id]: val});
+                            }
+                          }}
                           className="w-full rounded-lg border border-slate-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-900 dark:text-zinc-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
                         />
                       </div>
                       <div className="md:col-span-3">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Feedback Comment (Optional)</label>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Feedback Comment <span className="text-slate-400 font-normal">(Optional)</span></label>
                         <input 
-                          type="text" placeholder="Good effort, but missed..."
-                          value={comments[ans.id]} 
+                          type="text" placeholder="No feedback"
+                          value={comments[ans.id] || ""} 
                           onChange={(e) => setComments({...comments, [ans.id]: e.target.value})}
                           className="w-full rounded-lg border border-slate-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-slate-900 dark:text-zinc-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
                         />

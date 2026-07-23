@@ -270,6 +270,9 @@ export function TestPlayer({
       options: q.type === "MCQ" ? [...(q.options || [])] : undefined,
       correctAnswers: q.type === "MCQ" ? [...(q.correctAnswers || [])] : undefined,
       marks: q.marks,
+      postureMarks: q.postureMarks,
+      voiceMarks: q.voiceMarks,
+      accuracyMarks: q.accuracyMarks,
       evaluationType: q.type === "Video" ? q.evaluationType || "AI" : undefined,
       referenceScript: refScript,
     });
@@ -297,7 +300,16 @@ export function TestPlayer({
         setUploadingScript(false);
       }
 
-      const updatedDraft = { ...editDraft, referenceScript: finalScript };
+      const updatedDraft = { 
+        ...editDraft, 
+        marks: (editDraft.postureMarks !== undefined && editDraft.voiceMarks !== undefined && editDraft.accuracyMarks !== undefined)
+          ? (Number(editDraft.postureMarks) || 0) + (Number(editDraft.voiceMarks) || 0) + (Number(editDraft.accuracyMarks) || 0)
+          : (editDraft.marks === "" ? 0 : (editDraft.marks !== undefined ? Number(editDraft.marks) : undefined)),
+        postureMarks: editDraft.postureMarks !== undefined ? (editDraft.postureMarks === "" ? null : Number(editDraft.postureMarks)) : undefined,
+        voiceMarks: editDraft.voiceMarks !== undefined ? (editDraft.voiceMarks === "" ? null : Number(editDraft.voiceMarks)) : undefined,
+        accuracyMarks: editDraft.accuracyMarks !== undefined ? (editDraft.accuracyMarks === "" ? null : Number(editDraft.accuracyMarks)) : undefined,
+        referenceScript: finalScript 
+      };
 
       await api.put(`/tests/questions/${questionId}`, updatedDraft);
       // Refresh tests to show updated data
@@ -311,6 +323,21 @@ export function TestPlayer({
     } finally {
       setSavingEdit(false);
       setUploadingScript(false);
+    }
+  };
+
+  const deleteTest = async (e: React.MouseEvent, testId: number) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this test? All questions and submissions will be permanently lost.")) return;
+    try {
+      await api.delete(`/tests/${testId}`);
+      toast.success("Test deleted successfully");
+      await fetchTests();
+      if (externalTest && externalTest.id === testId) {
+        window.location.reload(); // Simple way to refresh standalone if deleted
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to delete test.");
     }
   };
 
@@ -530,7 +557,14 @@ export function TestPlayer({
                   <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full">
                     {test.questions.filter((q: any) => q.type === "MCQ").length} MCQ · {test.questions.filter((q: any) => q.type === "CQ").length} CQ · {test.questions.filter((q: any) => q.type === "Video").length} Video
                   </span>
-                  {expandedTestId === test.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                  <button
+                    onClick={(e) => deleteTest(e, test.id)}
+                    className="p-1.5 rounded-full bg-red-50 dark:bg-red-950/30 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors ml-2"
+                    title="Delete Test"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  {expandedTestId === test.id ? <ChevronUp size={16} className="text-slate-400 ml-1" /> : <ChevronDown size={16} className="text-slate-400 ml-1" />}
                 </div>
               </button>
 
@@ -589,17 +623,81 @@ export function TestPlayer({
                           />
                         )}
 
-                        <p className="text-[11px] text-slate-400 mb-3">
-                          Marks: {!isEditing ? q.marks : (
-                            <input
-                              type="number"
-                              value={editDraft.marks ?? q.marks}
-                              onChange={e => setEditDraft({ ...editDraft, marks: Number(e.target.value) })}
-                              className="inline-block w-14 ml-1 border border-slate-300 dark:border-zinc-600 rounded px-1 text-xs bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 outline-none"
-                              min={1}
-                            />
-                          )}
-                        </p>
+                        {q.type === "Video" ? (
+                          <div className="flex flex-col gap-1 mb-3">
+                            <span className="text-[11px] text-slate-400 font-bold">Category Max Marks:</span>
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <div className="flex items-center gap-1">
+                                <label className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Posture:</label>
+                                {!isEditing ? (
+                                  <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">{q.postureMarks ?? (q.marks / 3)}</span>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={editDraft.postureMarks ?? (q.postureMarks ?? "")}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === "" || /^\d*\.?\d*$/.test(val)) setEditDraft({ ...editDraft, postureMarks: val });
+                                    }}
+                                    className="w-12 border border-purple-200 dark:border-purple-800 rounded px-1 text-xs bg-white dark:bg-zinc-900 text-center outline-none"
+                                  />
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <label className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">Voice:</label>
+                                {!isEditing ? (
+                                  <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">{q.voiceMarks ?? (q.marks / 3)}</span>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={editDraft.voiceMarks ?? (q.voiceMarks ?? "")}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === "" || /^\d*\.?\d*$/.test(val)) setEditDraft({ ...editDraft, voiceMarks: val });
+                                    }}
+                                    className="w-12 border border-blue-200 dark:border-blue-800 rounded px-1 text-xs bg-white dark:bg-zinc-900 text-center outline-none"
+                                  />
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <label className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Script:</label>
+                                {!isEditing ? (
+                                  <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">{q.accuracyMarks ?? (q.marks / 3)}</span>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={editDraft.accuracyMarks ?? (q.accuracyMarks ?? "")}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === "" || /^\d*\.?\d*$/.test(val)) setEditDraft({ ...editDraft, accuracyMarks: val });
+                                    }}
+                                    className="w-12 border border-emerald-200 dark:border-emerald-800 rounded px-1 text-xs bg-white dark:bg-zinc-900 text-center outline-none"
+                                  />
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-bold ml-2 border-l border-slate-200 dark:border-zinc-700 pl-3">
+                                Total: {!isEditing ? q.marks : ((Number(editDraft.postureMarks) || 0) + (Number(editDraft.voiceMarks) || 0) + (Number(editDraft.accuracyMarks) || 0))}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 mb-3">
+                            Marks: {!isEditing ? q.marks : (
+                              <input
+                                type="text"
+                                placeholder="e.g. 5"
+                                value={editDraft.marks ?? (q.marks === 0 ? "" : q.marks)}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                                    setEditDraft({ ...editDraft, marks: val });
+                                  }
+                                }}
+                                className="inline-block w-14 ml-1 border border-slate-300 dark:border-zinc-600 rounded px-1 text-xs bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 outline-none"
+                              />
+                            )}
+                          </p>
+                        )}
 
                         {/* MCQ options */}
                         {q.type === "MCQ" && (

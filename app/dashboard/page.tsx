@@ -404,7 +404,7 @@ function DashboardPageContent() {
   
   // Tab within the simulated Course Details page
 
-  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests">("player");
+  const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "leaderboard">("player");
   const [courseSourceTab, setCourseSourceTab] = useState<string | null>(null);
 
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -417,24 +417,71 @@ function DashboardPageContent() {
   // Paginated user and course list states
   const [courseViewMode, setCourseViewMode] = useState<"card" | "list">("card");
   const [isCreateCourseModalOpen, setIsCreateCourseModalOpen] = useState(false);
+  const [isManageCategoriesModalOpen, setIsManageCategoriesModalOpen] = useState(false);
+  const [newCategoryNameInput, setNewCategoryNameInput] = useState("");
+  const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<number | null>(null);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [isDeletingCategoryId, setIsDeletingCategoryId] = useState<number | null>(null);
   const [deletedLessonDetails, setDeletedLessonDetails] = useState<any | null>(null);
   const [showEmployeePassword, setShowEmployeePassword] = useState(false);
 
   // Edit course state
   const [editCourseName, setEditCourseName] = useState("");
   const [editCourseCategoryId, setEditCourseCategoryId] = useState<number | null>(null);
+  const [editCourseDescription, setEditCourseDescription] = useState("");
   const [isUpdatingCourse, setIsUpdatingCourse] = useState(false);
   const [editCourseFormError, setEditCourseFormError] = useState("");
   const [editCourseFormSuccess, setEditCourseFormSuccess] = useState("");
+  const [showCourseSettingsEdit, setShowCourseSettingsEdit] = useState(false);
+
+  useEffect(() => {
+    setShowCourseSettingsEdit(false);
+  }, [courseDetailsTab]);
 
   useEffect(() => {
     if (selectedCourse) {
       setEditCourseName(selectedCourse.name);
       setEditCourseCategoryId(selectedCourse.categoryId || null);
+      setEditCourseDescription(selectedCourse.description || "");
       setEditCourseFormError("");
       setEditCourseFormSuccess("");
     }
   }, [selectedCourse]);
+
+  const [adminLeaderboardLessonId, setAdminLeaderboardLessonId] = useState<string>("");
+  const [adminLeaderboardData, setAdminLeaderboardData] = useState<any[]>([]);
+  const [isAdminLeaderboardLoading, setIsAdminLeaderboardLoading] = useState(false);
+  const [showAddTestForm, setShowAddTestForm] = useState(false);
+
+  useEffect(() => {
+    setShowAddTestForm(false);
+  }, [courseDetailsTab]);
+
+  const fetchAdminLeaderboard = useCallback(async (lessonId: string) => {
+    if (!lessonId) return;
+    setIsAdminLeaderboardLoading(true);
+    try {
+      const res = await api.get(`/tests/leaderboard/${lessonId}`);
+      setAdminLeaderboardData(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch admin leaderboard", err);
+      setAdminLeaderboardData([]);
+    } finally {
+      setIsAdminLeaderboardLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (adminLeaderboardLessonId) {
+      fetchAdminLeaderboard(adminLeaderboardLessonId);
+    }
+  }, [adminLeaderboardLessonId, fetchAdminLeaderboard]);
+
+  useEffect(() => {
+    if (courseLessons.length > 0 && !adminLeaderboardLessonId) {
+      setAdminLeaderboardLessonId(String(courseLessons[0].id));
+    }
+  }, [courseLessons, adminLeaderboardLessonId]);
 
   // Edit lesson state
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
@@ -496,6 +543,7 @@ function DashboardPageContent() {
   const [newCourseName, setNewCourseName] = useState("");
   const [newCourseCategory, setNewCourseCategory] = useState(1);
   const [newCourseStatus, setNewCourseStatus] = useState("draft");
+  const [newCourseDescription, setNewCourseDescription] = useState("");
   const [courseFormError, setCourseFormError] = useState("");
   const [courseFormSuccess, setCourseFormSuccess] = useState("");
 
@@ -604,25 +652,26 @@ function DashboardPageContent() {
     fetchCourses();
   }, [fetchCourses]);
 
+  const fetchCategoriesList = useCallback(async () => {
+    try {
+      const res = await api.get("/courses/categories");
+      const list = (res.data || []).map((cat: any) => ({
+        categoryId: cat.id,
+        categoryName: cat.name,
+      }));
+      setCategoriesList(list);
+      if (list.length > 0 && newCourseCategory === 1) {
+        setNewCourseCategory(list[0].categoryId);
+      }
+    } catch (err) {
+      console.error("Failed to load categories dynamically:", err);
+    }
+  }, [newCourseCategory]);
+
   // Fetch categories list via API on mount
   useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        const res = await api.get("/courses/categories");
-        const list = (res.data || []).map((cat: any) => ({
-          categoryId: cat.id,
-          categoryName: cat.name,
-        }));
-        setCategoriesList(list);
-        if (list.length > 0) {
-          setNewCourseCategory(list[0].categoryId);
-        }
-      } catch (err) {
-        console.error("Failed to load categories dynamically:", err);
-      }
-    };
-    fetchCategories();
-  }, []);
+    fetchCategoriesList();
+  }, [fetchCategoriesList]);
 
   // Handle recently viewed courses synchronization with localStorage
   const addToRecentlyViewed = useCallback((course: Course) => {
@@ -916,6 +965,46 @@ function DashboardPageContent() {
   };
 
   // Course forms action
+  const handleAddCategory = () => {
+    setNewCategoryNameInput("");
+    setIsManageCategoriesModalOpen(true);
+  };
+
+  const submitNewCategory = async () => {
+    if (newCategoryNameInput.trim()) {
+      setIsAddingCategory(true);
+      try {
+        const res = await api.post("/courses/categories", { name: newCategoryNameInput.trim() });
+        await fetchCategoriesList();
+        if (res.data && res.data.id) {
+          setNewCourseCategory(res.data.id);
+          if (editCourseCategoryId) setEditCourseCategoryId(res.data.id);
+        }
+        setNewCategoryNameInput("");
+        toast.success("Category saved!");
+      } catch (err: any) {
+        toast.error("Failed to add category");
+      } finally {
+        setIsAddingCategory(false);
+      }
+    }
+  };
+
+  const deleteCategory = async (id: number) => {
+    setIsDeletingCategoryId(id);
+    try {
+      await api.delete(`/courses/categories/${id}`);
+      await fetchCategoriesList();
+      setConfirmDeleteCategoryId(null);
+      toast.success("Category deleted!");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to delete category");
+      setConfirmDeleteCategoryId(null);
+    } finally {
+      setIsDeletingCategoryId(null);
+    }
+  };
+
   const handleCreateCourse = (e: React.FormEvent) => {
     e.preventDefault();
     setCourseFormError("");
@@ -936,10 +1025,12 @@ function DashboardPageContent() {
             name: newCourseName,
             categoryId: Number(newCourseCategory),
             status: newCourseStatus,
+            description: newCourseDescription,
           });
           toast.success("Course created successfully!");
           setCourseFormSuccess("Course created successfully!");
           setNewCourseName("");
+          setNewCourseDescription("");
           fetchCourses();
           loadPaginatedCourses();
           setIsCreateCourseModalOpen(false);
@@ -1082,6 +1173,7 @@ function DashboardPageContent() {
       const updated = await updateCourse(selectedCourse.courseId, {
         name: editCourseName,
         categoryId: editCourseCategoryId || undefined,
+        description: editCourseDescription,
       });
       setSelectedCourse(updated);
       setEditCourseFormSuccess("Course updated successfully!");
@@ -1205,6 +1297,12 @@ function DashboardPageContent() {
             setSelectedCourse(null);
             setSelectedLesson(null);
             setCourseLessons([]);
+            if (courseSourceTab) {
+              router.push(`/dashboard?tab=${courseSourceTab}`);
+              setCourseSourceTab(null);
+            } else {
+              router.push(`/dashboard?tab=manage-courses`);
+            }
           }
           removeFromRecentlyViewed(courseId);
           await fetchCourses();
@@ -1515,6 +1613,20 @@ function DashboardPageContent() {
                 {/* Lesson Detail Bar & Action Panel */}
                 {selectedLesson && (
                   <div className="flex flex-col gap-4 bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 shadow-sm animate-fadeIn">
+                    {/* Card header row */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-500">Lesson Info</span>
+                      {isAdminOrEmployee && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingLesson(selectedLesson)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold transition dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        >
+                          <Pencil size={12} /> Edit Lesson
+                        </button>
+                      )}
+                    </div>
+
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                       <div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-2.5 py-1 rounded-md">
@@ -1611,25 +1723,13 @@ function DashboardPageContent() {
                         onClick={() => setCourseDetailsTab("player")}
                         className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "player" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
                       >
-                        Information
+                        Course Info
                       </button>
                       <button
                         onClick={() => setCourseDetailsTab("add-lesson")}
                         className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "add-lesson" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
                       >
                         Add Lesson
-                      </button>
-                      <button
-                        onClick={() => setCourseDetailsTab("add-test")}
-                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "add-test" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
-                      >
-                        Add Test
-                      </button>
-                      <button
-                        onClick={() => setCourseDetailsTab("settings")}
-                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "settings" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
-                      >
-                        Course Settings
                       </button>
                       <button
                         onClick={() => setCourseDetailsTab("student-marks")}
@@ -1649,28 +1749,205 @@ function DashboardPageContent() {
                       >
                         All Tests
                       </button>
+                      <button
+                        onClick={() => setCourseDetailsTab("leaderboard")}
+                        className={`pb-3 text-sm font-semibold px-4 transition ${courseDetailsTab === "leaderboard" ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        Leaderboard
+                      </button>
                     </div>
 
                     <div className="p-1">
                       {courseDetailsTab === "player" && (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-2">Course Metrics Summary</h4>
-                          <div className="grid grid-cols-2 gap-4 mt-3">
-                            <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 rounded-xl">
-                              <span className="text-xs text-slate-400 font-semibold block">Total Enrolled Learners</span>
-                              <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{selectedCourse.enrolled}</span>
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col gap-6 animate-fadeIn">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <h4 className="font-bold text-slate-900 dark:text-zinc-50">Course Info & Metrics</h4>
+                              <p className="text-xs text-slate-500">Summary stats and general information for this course.</p>
                             </div>
-                            <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 rounded-xl">
-                              <span className="text-xs text-slate-400 font-semibold block">Lesson Chapters Count</span>
-                              <span className="text-lg font-bold text-slate-900 dark:text-zinc-100">{lessons.length}</span>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowCourseSettingsEdit(!showCourseSettingsEdit)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold transition dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                            >
+                              <Settings size={14} /> {showCourseSettingsEdit ? "Close Settings" : "Edit Course Settings"}
+                            </button>
                           </div>
+
+                          {showCourseSettingsEdit ? (
+                            <div className="flex flex-col gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/50 dark:border-zinc-850 dark:bg-zinc-900/30 animate-fadeIn">
+                              <h5 className="text-xs font-bold text-slate-900 dark:text-zinc-100">Edit Settings</h5>
+                              
+                              {editCourseFormError && (
+                                <div className="p-3 text-xs bg-red-50 text-red-600 rounded-xl border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30">
+                                  {editCourseFormError}
+                                </div>
+                              )}
+                              {editCourseFormSuccess && (
+                                <div className="p-3 text-xs bg-green-50 text-green-600 rounded-xl border border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/30">
+                                  {editCourseFormSuccess}
+                                </div>
+                              )}
+
+                              <form onSubmit={handleEditCourse} className="flex flex-col gap-4">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Name</label>
+                                  <input
+                                    type="text"
+                                    value={editCourseName}
+                                    onChange={(e) => setEditCourseName(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                                    required
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Category</label>
+                                    <button type="button" onClick={handleAddCategory} className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">+ New Category</button>
+                                  </div>
+                                  <select
+                                    value={editCourseCategoryId || ""}
+                                    onChange={(e) => setEditCourseCategoryId(Number(e.target.value))}
+                                    className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+                                  >
+                                    <option value="">Select Category</option>
+                                    {categoriesList.map((cat) => (
+                                      <option key={cat.categoryId} value={cat.categoryId}>
+                                        {cat.categoryName}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Description</label>
+                                  <textarea
+                                    value={editCourseDescription}
+                                    onChange={(e) => setEditCourseDescription(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 min-h-[80px]"
+                                    placeholder="Enter course description here..."
+                                  />
+                                </div>
+                                <button
+                                  type="submit"
+                                  disabled={isUpdatingCourse}
+                                  className="self-start rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
+                                >
+                                  {isUpdatingCourse ? "Saving..." : "Save Changes"}
+                                </button>
+                              </form>
+
+                              <div className="h-px bg-slate-200 dark:bg-zinc-800 w-full my-2" />
+
+                              <div className="flex flex-col gap-3">
+                                <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 font-semibold">Visibility & Status:</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {selectedCourse.status === "active" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "inactive")}
+                                      className="rounded-xl px-4 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white transition shadow-sm"
+                                    >
+                                      Set Inactive
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "active")}
+                                      className="rounded-xl px-4 py-2 text-xs font-bold bg-green-600 hover:bg-green-700 text-white transition shadow-sm"
+                                    >
+                                      Set Active
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => confirmSoftDeleteCourse(selectedCourse.courseId)}
+                                    className="rounded-xl px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-sm ml-auto"
+                                  >
+                                    Delete Course
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-6">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-zinc-850">
+                                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block mb-1">Total Enrolled Learners</span>
+                                  <span className="text-xl font-bold text-slate-900 dark:text-zinc-100">{selectedCourse.enrolled}</span>
+                                </div>
+                                <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-zinc-850">
+                                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block mb-1">Lesson Chapters Count</span>
+                                  <span className="text-xl font-bold text-slate-900 dark:text-zinc-100">{lessons.length}</span>
+                                </div>
+                              </div>
+
+                              <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/20 dark:border-zinc-850 dark:bg-zinc-900/10">
+                                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Course Description</h5>
+                                {selectedCourse.description ? (
+                                  <p className="text-xs text-slate-650 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">{selectedCourse.description}</p>
+                                ) : (
+                                  <p className="text-xs text-slate-400 italic">No description provided for this course yet.</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {courseDetailsTab === "all-tests" && (
                         <div className="flex flex-col gap-6">
-                          {selectedLesson && (
+                          {/* Header row with Add Test button */}
+                          <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                            <div>
+                              <h4 className="font-bold text-slate-900 dark:text-zinc-50 text-sm">All Tests</h4>
+                              <p className="text-xs text-slate-500 dark:text-zinc-400">Manage lesson tests and standalone exams for this course.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowAddTestForm(!showAddTestForm)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm"
+                            >
+                              <span>{showAddTestForm ? "✕ Cancel" : "+ Add Test"}</span>
+                            </button>
+                          </div>
+
+                          {/* Inline TestBuilder form */}
+                          {showAddTestForm && (
+                            <div className="animate-fadeIn">
+                              <TestBuilder
+                                courseId={selectedCourse.id}
+                                lessons={lessons}
+                                initialLessonId={selectedLesson?.id}
+                                onSuccess={async (createdForLessonId?: number) => {
+                                  setShowAddTestForm(false);
+                                  if (selectedCourse) {
+                                    const freshLessons = await loadCourseLessons(selectedCourse.courseId);
+                                    if (createdForLessonId && freshLessons?.length) {
+                                      const targetLesson = freshLessons.find(
+                                        (l: any) => l.id === createdForLessonId
+                                      );
+                                      if (targetLesson) {
+                                        setSelectedLesson(targetLesson);
+                                        setShowTestPlayer(true);
+                                      }
+                                    } else if (selectedLesson) {
+                                      try {
+                                        const res = await api.get(`/tests/lesson/${selectedLesson.id}`);
+                                        setHasTests(res.data && res.data.length > 0);
+                                      } catch {}
+                                    }
+                                    try {
+                                      const res = await api.get(`/tests/standalone/${selectedCourse.courseId}`);
+                                      setStandaloneExams(res.data || []);
+                                    } catch {}
+                                  }
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Existing test player for selected lesson */}
+                          {selectedLesson && !showAddTestForm && (
                             <TestPlayer
                               lessonId={selectedLesson.id}
                               isAdmin={true}
@@ -1790,116 +2067,58 @@ function DashboardPageContent() {
                         </div>
                       )}
 
-                      {courseDetailsTab === "add-test" && (
-                        <TestBuilder
-                          courseId={selectedCourse.id}
-                          lessons={lessons}
-                          initialLessonId={selectedLesson?.id}
-                          onSuccess={async (createdForLessonId?: number) => {
-                            setCourseDetailsTab("player");
-                            if (selectedCourse) {
-                              const freshLessons = await loadCourseLessons(selectedCourse.courseId);
-                              if (createdForLessonId && freshLessons?.length) {
-                                const targetLesson = freshLessons.find(
-                                  (l: any) => l.id === createdForLessonId
-                                );
-                                if (targetLesson) {
-                                  setSelectedLesson(targetLesson);
-                                  setShowTestPlayer(true);
-                                }
-                              } else if (selectedLesson) {
-                                try {
-                                  const res = await api.get(`/tests/lesson/${selectedLesson.id}`);
-                                  setHasTests(res.data && res.data.length > 0);
-                                } catch {}
-                              }
-                              // Refresh standalone exams list
-                              try {
-                                const res = await api.get(`/tests/standalone/${selectedCourse.courseId}`);
-                                setStandaloneExams(res.data || []);
-                              } catch {}
-                            }
-                          }}
-                        />
-                      )}
-
-                      {courseDetailsTab === "settings" && (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col gap-6">
+                      {courseDetailsTab === "leaderboard" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col gap-6 animate-fadeIn">
                           <div>
-                            <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-1">Edit Course</h4>
-                            <p className="text-xs text-slate-500 dark:text-zinc-400">Modify the details of this course.</p>
+                            <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-1 flex items-center gap-2">
+                              <Trophy size={18} className="text-amber-500" /> Lesson Leaderboard
+                            </h4>
+                            <p className="text-xs text-slate-500 dark:text-zinc-400">View Top 5 student scores and completions for the selected lesson.</p>
                           </div>
-                          
-                          {editCourseFormError && (
-                            <div className="p-3 text-xs bg-red-50 text-red-600 rounded-xl border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30">
-                              {editCourseFormError}
-                            </div>
-                          )}
-                          {editCourseFormSuccess && (
-                            <div className="p-3 text-xs bg-green-50 text-green-600 rounded-xl border border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/30">
-                              {editCourseFormSuccess}
-                            </div>
-                          )}
 
-                          <form onSubmit={handleEditCourse} className="flex flex-col gap-4">
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Name</label>
-                              <input
-                                type="text"
-                                value={editCourseName}
-                                onChange={(e) => setEditCourseName(e.target.value)}
-                                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
-                                required
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Category</label>
-                              <select
-                                value={editCourseCategoryId || ""}
-                                onChange={(e) => setEditCourseCategoryId(Number(e.target.value))}
-                                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-                              >
-                                <option value="">Select Category</option>
-                                {categoriesList.map((cat) => (
-                                  <option key={cat.categoryId} value={cat.categoryId}>
-                                    {cat.categoryName}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <button
-                              type="submit"
-                              disabled={isUpdatingCourse}
-                              className="self-start rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50"
+                          <div className="flex flex-col gap-1.5 w-full max-w-xs">
+                            <label className="text-xs font-semibold text-slate-500">Select Lesson</label>
+                            <select
+                              value={adminLeaderboardLessonId}
+                              onChange={(e) => setAdminLeaderboardLessonId(e.target.value)}
+                              className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 focus:outline-none"
                             >
-                              {isUpdatingCourse ? "Saving..." : "Save Changes"}
-                            </button>
-                          </form>
-
-                          <div className="h-px bg-slate-100 dark:bg-zinc-800 w-full" />
-
-                          <div className="flex flex-col gap-3">
-                            <span className="text-xs font-bold text-slate-500 dark:text-zinc-400">Toggle course visibility to users:</span>
-                            <div className="flex gap-2">
-                              {selectedCourse.status === "active" ? (
-                                <button
-                                  onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "inactive")}
-                                  className="rounded-xl px-4 py-2 text-xs font-semibold border border-transparent bg-red-600 text-white transition hover:bg-red-700"
-                                >
-                                  Set Inactive
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleUpdateCourseStatus(selectedCourse.courseId, "active")}
-                                  className="rounded-xl px-4 py-2 text-xs font-semibold border border-transparent bg-green-600 text-white transition hover:bg-green-700"
-                                >
-                                  Set Active
-                                </button>
-                              )}
-                            </div>
+                              <option value="">Select a lesson...</option>
+                              {courseLessons.map((l) => (
+                                <option key={l.id} value={String(l.id)}>
+                                  {l.lessonId} - {l.title}
+                                </option>
+                              ))}
+                            </select>
                           </div>
+
+                          {isAdminLeaderboardLoading ? (
+                            <div className="flex flex-col items-center justify-center py-12 gap-3">
+                              <Loader2 size={24} className="text-blue-500 animate-spin" />
+                              <span className="text-xs text-slate-455 font-medium">Fetching ranks...</span>
+                            </div>
+                          ) : adminLeaderboardData.length === 0 ? (
+                            <p className="text-xs text-slate-500 py-4 bg-slate-50 dark:bg-zinc-800/40 rounded-xl px-4 text-center">No participants yet for this lesson's test.</p>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              {adminLeaderboardData.map((lb, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-zinc-800">
+                                  <div className="flex items-center gap-3">
+                                    <span className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                      idx === 0 ? "bg-amber-100 text-amber-700 animate-pulse" :
+                                      idx === 1 ? "bg-slate-200 text-slate-700" :
+                                      idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"
+                                    }`}>#{idx + 1}</span>
+                                    <span className="font-semibold text-slate-800 dark:text-zinc-200 text-xs">{lb.name}</span>
+                                  </div>
+                                  <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs">{lb.marksObtained} pts</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
+
 
                       {courseDetailsTab === "student-marks" && (
                         <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
@@ -1948,14 +2167,11 @@ function DashboardPageContent() {
 
                       {courseDetailsTab === "evaluation" && (
                         <div>
-                          {!selectedLesson ? (
-                            <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                              <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Evaluation</h4>
-                              <p className="text-xs text-slate-400">Please select a lesson from the playlist to evaluate student test submissions.</p>
-                            </div>
-                          ) : (
-                            <LessonEvaluationView selectedLesson={selectedLesson} courseId={selectedCourse.courseId} />
-                          )}
+                          <LessonEvaluationView
+                            selectedLesson={selectedLesson ?? (courseLessons.length > 0 ? courseLessons[0] : null)}
+                            courseId={selectedCourse.courseId}
+                            courseLessons={courseLessons}
+                          />
                         </div>
                       )}
                     </div>
@@ -3107,7 +3323,7 @@ function DashboardPageContent() {
               return (
                 <div
                   key={`${c.courseId}-${idx}`}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between hover:border-slate-300 hover:shadow-md transition cursor-pointer"
+                  className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#121212] flex flex-col justify-between hover:border-slate-300 hover:shadow-md transition cursor-pointer"
                   onClick={async () => {
                     setSelectedCourse(c);
                     await loadCourseLessons(c.courseId, true);
@@ -3125,8 +3341,11 @@ function DashboardPageContent() {
                       <span>Course Progress</span>
                       <span className="font-bold text-blue-600 dark:text-blue-400">{progress}%</span>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800 mb-4">
                       <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                      <span className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 group-hover:text-blue-700 transition">Resume Course <ChevronRight size={14} /></span>
                     </div>
                   </div>
                 </div>
@@ -4069,6 +4288,82 @@ function DashboardPageContent() {
         </div>
       )}
 
+      {/* Manage Categories Modal overlay */}
+      {isManageCategoriesModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn" onClick={() => setIsManageCategoriesModalOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50">Manage Categories</h3>
+              <button
+                onClick={() => setIsManageCategoriesModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-850 transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategoryNameInput}
+                  onChange={(e) => setNewCategoryNameInput(e.target.value)}
+                  placeholder="New Category Name..."
+                  className="flex-1 rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
+                />
+                <button
+                  onClick={submitNewCategory}
+                  disabled={!newCategoryNameInput.trim() || isAddingCategory}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {isAddingCategory ? <Loader2 size={16} className="animate-spin" /> : null}
+                  Add
+                </button>
+              </div>
+
+              <div className="max-h-[300px] overflow-y-auto pr-1 flex flex-col gap-2 mt-2">
+                {categoriesList.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4">No categories found.</p>
+                ) : (
+                  categoriesList.map(cat => (
+                    <div key={cat.categoryId} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-800/40">
+                      <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">{cat.categoryName}</span>
+                      
+                      {confirmDeleteCategoryId === cat.categoryId ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => deleteCategory(cat.categoryId)}
+                            disabled={isDeletingCategoryId === cat.categoryId}
+                            className="flex items-center gap-1 text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50 transition"
+                          >
+                            {isDeletingCategoryId === cat.categoryId ? <Loader2 size={12} className="animate-spin" /> : null}
+                            Confirm Delete
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteCategoryId(null)}
+                            className="text-xs bg-slate-200 dark:bg-zinc-700 text-slate-700 dark:text-zinc-200 px-2 py-1 rounded hover:bg-slate-300 dark:hover:bg-zinc-600 transition"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteCategoryId(cat.categoryId)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30 p-1.5 rounded-md transition-colors"
+                          title="Delete Category"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Course Modal overlay */}
       {isCreateCourseModalOpen && (
         <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
@@ -4103,7 +4398,10 @@ function DashboardPageContent() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-500">Category Tag</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-500">Category Tag</label>
+                  <button type="button" onClick={handleAddCategory} className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">+ New Category</button>
+                </div>
                 <select
                   value={newCourseCategory} onChange={(e) => setNewCourseCategory(Number(e.target.value))}
                   className="rounded-xl border border-slate-200 bg-white p-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
@@ -4124,6 +4422,15 @@ function DashboardPageContent() {
                   <option value="draft">Draft mode (Hidden)</option>
                   <option value="active">Active (Deploy to Catalog)</option>
                 </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Course Description <span className="text-slate-400 font-normal">(optional)</span></label>
+                <textarea
+                  value={newCourseDescription}
+                  onChange={(e) => setNewCourseDescription(e.target.value)}
+                  placeholder="Brief overview of what learners will gain from this course..."
+                  className="rounded-xl border border-slate-200 bg-transparent px-3.5 py-2.5 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 min-h-[72px]"
+                />
               </div>
               <div className="flex justify-end gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
                 <button
