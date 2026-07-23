@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download } from "lucide-react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download, AlertTriangle } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
@@ -328,17 +328,47 @@ export function TestPlayer({
 
   const deleteTest = async (e: React.MouseEvent, testId: number) => {
     e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this test? All questions and submissions will be permanently lost.")) return;
-    try {
-      await api.delete(`/tests/${testId}`);
-      toast.success("Test deleted successfully");
-      await fetchTests();
-      if (externalTest && externalTest.id === testId) {
-        window.location.reload(); // Simple way to refresh standalone if deleted
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to delete test.");
-    }
+    toast.custom((t) => (
+      <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full bg-white dark:bg-zinc-900 shadow-xl rounded-2xl pointer-events-auto flex flex-col border border-slate-200 dark:border-zinc-800 p-4`}>
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-red-50 dark:bg-red-950/30 rounded-full shrink-0">
+            <AlertTriangle className="text-red-500" size={20} />
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-sm">Delete Test?</h4>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+              Are you sure you want to delete this test? All questions and submissions will be permanently lost.
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-4 border-t border-slate-100 dark:border-zinc-800/80 pt-3">
+          <button 
+            onClick={() => toast.dismiss(t.id)}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={async () => {
+              toast.dismiss(t.id);
+              try {
+                await api.delete(`/tests/${testId}`);
+                toast.success("Test deleted successfully");
+                await fetchTests();
+                if (externalTest && externalTest.id === testId) {
+                  window.location.reload(); 
+                }
+              } catch (err: any) {
+                toast.error(err.response?.data?.message || "Failed to delete test.");
+              }
+            }}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition shadow-sm shadow-red-600/20"
+          >
+            Confirm Delete
+          </button>
+        </div>
+      </div>
+    ), { duration: Infinity });
   };
 
   const toggleCorrectAnswer = (opt: string) => {
@@ -545,9 +575,9 @@ export function TestPlayer({
           tests.map(test => (
             <div key={test.id} className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm">
               {/* Test header */}
-              <button
+              <div
                 onClick={() => setExpandedTestId(expandedTestId === test.id ? null : test.id)}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 dark:hover:bg-zinc-800/60 transition"
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 dark:hover:bg-zinc-800/60 transition cursor-pointer"
               >
                 <div className="text-left">
                   <h4 className="font-bold text-slate-900 dark:text-zinc-100">{test.title}</h4>
@@ -557,16 +587,18 @@ export function TestPlayer({
                   <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full">
                     {test.questions.filter((q: any) => q.type === "MCQ").length} MCQ · {test.questions.filter((q: any) => q.type === "CQ").length} CQ · {test.questions.filter((q: any) => q.type === "Video").length} Video
                   </span>
-                  <button
-                    onClick={(e) => deleteTest(e, test.id)}
-                    className="p-1.5 rounded-full bg-red-50 dark:bg-red-950/30 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors ml-2"
-                    title="Delete Test"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => deleteTest(e, test.id)}
+                      className="p-1.5 rounded-full bg-red-50 dark:bg-red-950/30 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors ml-2"
+                      title="Delete Test"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                   {expandedTestId === test.id ? <ChevronUp size={16} className="text-slate-400 ml-1" /> : <ChevronDown size={16} className="text-slate-400 ml-1" />}
                 </div>
-              </button>
+              </div>
 
               {/* Expanded question editor */}
               {expandedTestId === test.id && (
