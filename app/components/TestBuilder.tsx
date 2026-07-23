@@ -505,7 +505,7 @@ export function TestBuilder({
                             onClick={() => handleScriptModeChange("file")}
                             className={`px-2.5 py-1 rounded-md transition ${scriptMode === "file" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
                           >
-                            Upload File
+                            Documents
                           </button>
                           <button
                             type="button"

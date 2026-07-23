@@ -1690,7 +1690,7 @@ function DashboardPageContent() {
                                   onClick={() => setLessonInputMode("upload")}
                                   className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${lessonInputMode === "upload" ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-300"}`}
                                 >
-                                  Upload File
+                                  Documents
                                 </button>
                               </div>
                             </div>
@@ -4154,7 +4154,7 @@ function DashboardPageContent() {
                     onChange={() => setEditLessonInputMode("file")}
                     className="accent-blue-600"
                   />
-                  Upload File
+                  Documents
                 </label>
               </div>
 
