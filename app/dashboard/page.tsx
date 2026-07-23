@@ -405,6 +405,7 @@ function DashboardPageContent() {
   // Tab within the simulated Course Details page
 
   const [courseDetailsTab, setCourseDetailsTab] = useState<"player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests">("player");
+  const [courseSourceTab, setCourseSourceTab] = useState<string | null>(null);
 
   const [catalogSearch, setCatalogSearch] = useState("");
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<number | null>(null);
@@ -523,15 +524,20 @@ function DashboardPageContent() {
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
   const [isMarksLoading, setIsMarksLoading] = useState(false);
 
-  // Reset deep layout/navigation states whenever the sidebar tab or reset trigger changes
+  const lastResetRef = useRef<string | null>(null);
+
+  // Reset deep layout/navigation states whenever the sidebar reset trigger changes (sidebar clicked)
   useEffect(() => {
-    setSelectedCourse(null);
-    setSelectedLesson(null);
-    setShowTestPlayer(false);
-    setSelectedStandaloneExam(null);
-    setEditingLesson(null);
-    setCourseDetailsTab("player");
-  }, [currentTab, resetTrigger]);
+    if (resetTrigger && resetTrigger !== lastResetRef.current) {
+      lastResetRef.current = resetTrigger;
+      setSelectedCourse(null);
+      setSelectedLesson(null);
+      setShowTestPlayer(false);
+      setSelectedStandaloneExam(null);
+      setEditingLesson(null);
+      setCourseDetailsTab("player");
+    }
+  }, [resetTrigger]);
 
   const loadStudentMarks = useCallback(async () => {
     if (!selectedLesson) return;
@@ -723,9 +729,26 @@ function DashboardPageContent() {
   // Note: Only fetch learner progress for non-paginated legacy catalog usages if needed.
   // With paginated My Learning, this is much less needed globally.
   const loadLearnerProgress = useCallback(async () => {
-    // ... we no longer automatically trigger this for every course
-    setIsProgressLoading(false);
-  }, []);
+    setIsProgressLoading(true);
+    try {
+      const res = await fetchMyLearning(1, 100, "all");
+      const progressMap: Record<string, number> = {};
+      res.data.forEach((c: any) => {
+        progressMap[c.courseId] = c.progress;
+      });
+      setLearnerProgress(progressMap);
+    } catch (e) {
+      console.error("Failed to load learner progress details", e);
+    } finally {
+      setIsProgressLoading(false);
+    }
+  }, [fetchMyLearning]);
+
+  useEffect(() => {
+    if (!isAdminOrEmployee && (currentTab === "catalog" || currentTab === "progress" || currentTab === "my-learning")) {
+      loadLearnerProgress();
+    }
+  }, [isAdminOrEmployee, currentTab, loadLearnerProgress]);
 
   // Fetch user list for admin User Management
   const loadUsers = useCallback(async (q: string = "") => {
@@ -1367,6 +1390,10 @@ function DashboardPageContent() {
                 setSelectedCourse(null);
                 setSelectedLesson(null);
                 setCourseDetailsTab("player");
+                if (courseSourceTab) {
+                  router.push(`/dashboard?tab=${courseSourceTab}`);
+                  setCourseSourceTab(null);
+                }
               }}
               className="flex items-center justify-center h-9 w-9 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             >
@@ -2713,12 +2740,14 @@ function DashboardPageContent() {
                     <button
                       onClick={async () => {
                         try {
+                          setLessonsLoading(true);
                           setActionLoading(true);
                           const res = await api.get(`/courses/${c.courseId}`);
                           setSelectedCourse(res.data);
                           await loadCourseLessons(c.courseId, true);
                         } catch (err: any) {
                           toast.error(err.message || "Failed to load course details.");
+                          setLessonsLoading(false);
                         } finally {
                           setActionLoading(false);
                         }
@@ -2789,12 +2818,14 @@ function DashboardPageContent() {
                           <button
                             onClick={async () => {
                               try {
+                                setLessonsLoading(true);
                                 setActionLoading(true);
                                 const res = await api.get(`/courses/${c.courseId}`);
                                 setSelectedCourse(res.data);
                                 await loadCourseLessons(c.courseId, true);
                               } catch (err: any) {
                                 toast.error(err.message || "Failed to load course details.");
+                                setLessonsLoading(false);
                               } finally {
                                 setActionLoading(false);
                               }
@@ -3304,6 +3335,7 @@ function DashboardPageContent() {
                     {isEnrolled ? (
                       <button
                         onClick={async () => {
+                          setCourseSourceTab("catalog");
                           setSelectedCourse(c);
                           await loadCourseLessons(c.courseId, true);
                           router.push("/dashboard?tab=my-learning");
@@ -3362,6 +3394,7 @@ function DashboardPageContent() {
                           {isEnrolled ? (
                             <button
                               onClick={async () => {
+                                setCourseSourceTab("catalog");
                                 setSelectedCourse(c);
                                 await loadCourseLessons(c.courseId, true);
                                 router.push("/dashboard?tab=my-learning");
@@ -3419,11 +3452,7 @@ function DashboardPageContent() {
 
   // RENDER LEARNER PROGRESS REPORT (User/Learner Only)
   const renderLearnerProgressReport = () => {
-    if (isCoursesLoading) return <LoadingSpinner />;
-
-    // When courses are loaded but progress is still being hydrated, show loader
-    const needsProgressHydration = !allCourses.length || Object.keys(learnerProgress).length === 0;
-    if (needsProgressHydration) return <LoadingSpinner />;
+    if (isCoursesLoading || isProgressLoading) return <LoadingSpinner />;
 
 
     const enrolledCourses = allCourses.filter((c) => {
@@ -3935,6 +3964,16 @@ function DashboardPageContent() {
       <div className="min-h-screen">
         {renderViewContent()}
       </div>
+
+      {lessonsLoading && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="flex flex-col items-center gap-4 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-8 rounded-3xl shadow-2xl animate-scaleIn">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-400" />
+            <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">Loading course syllabus...</p>
+            <p className="text-xs text-slate-400">Preparing lessons & materials</p>
+          </div>
+        </div>
+      )}
 
       {/* Deleted Lesson Details Modal */}
       {deletedLessonDetails && (
