@@ -1254,17 +1254,20 @@ function DashboardPageContent() {
   };
 
   // Learner Actions
-  const handleEnroll = (courseId: string) => {
+  const handleEnroll = (course: Course) => {
     triggerConfirm(
       "Confirm Enrollment",
       "Would you like to enroll in this course? You will gain access to its learning playlist and slides.",
       async () => {
         try {
-          await enrollInCourse(courseId);
+          await enrollInCourse(course.courseId);
           toast.success("Enrolled in course successfully!");
           await fetchCourses();
           loadLearnerProgress();
-          router.push("/dashboard?tab=my-learning");
+          
+          setCourseSourceTab("my-learning");
+          setSelectedCourse(course);
+          await loadCourseLessons(course.courseId, true);
         } catch (err: any) {
           toast.error(err.message || "Failed to enroll in course.");
         }
@@ -3592,7 +3595,6 @@ function DashboardPageContent() {
                           setCourseSourceTab("catalog");
                           setSelectedCourse(c);
                           await loadCourseLessons(c.courseId, true);
-                          router.push("/dashboard?tab=my-learning");
                         }}
                         className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
                       >
@@ -3600,7 +3602,7 @@ function DashboardPageContent() {
                       </button>
                     ) : (
                       <button
-                        onClick={() => handleEnroll(c.courseId)}
+                        onClick={() => handleEnroll(c)}
                         disabled={actionLoading}
                         className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 transition disabled:opacity-50"
                       >
@@ -3651,7 +3653,6 @@ function DashboardPageContent() {
                                 setCourseSourceTab("catalog");
                                 setSelectedCourse(c);
                                 await loadCourseLessons(c.courseId, true);
-                                router.push("/dashboard?tab=my-learning");
                               }}
                               className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
                             >
@@ -3659,7 +3660,7 @@ function DashboardPageContent() {
                             </button>
                           ) : (
                             <button
-                              onClick={() => handleEnroll(c.courseId)}
+                              onClick={() => handleEnroll(c)}
                               disabled={actionLoading}
                               className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 transition disabled:opacity-50"
                             >
@@ -4176,6 +4177,10 @@ function DashboardPageContent() {
 
 
   const renderViewContent = () => {
+    if (selectedCourse) {
+      return renderYouTubePlayerView();
+    }
+
     if (isAdminOrEmployee) {
       switch (currentTab) {
         case "overview":
