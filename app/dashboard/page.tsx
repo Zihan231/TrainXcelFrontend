@@ -575,7 +575,9 @@ function DashboardPageContent() {
 
   // Student Marks view tab states
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
+  const [remainingSubmissions, setRemainingSubmissions] = useState(0);
   const [isMarksLoading, setIsMarksLoading] = useState(false);
+  const [marksLesson, setMarksLesson] = useState<any | null>(null);
 
   const lastResetRef = useRef<string | null>(resetTrigger);
 
@@ -594,17 +596,24 @@ function DashboardPageContent() {
   }, [resetTrigger]);
 
   const loadStudentMarks = useCallback(async () => {
-    if (!selectedLesson) return;
+    const lesson = marksLesson || selectedLesson;
+    if (!lesson) return;
     setIsMarksLoading(true);
     try {
-      const res = await api.get(`/tests/lesson/${selectedLesson.id}/submissions`);
-      setStudentMarks(res.data || []);
+      const res = await api.get(`/tests/lesson/${lesson.id}/submissions`);
+      const payload = res.data || {};
+      const submissions = Array.isArray(payload.submissions) ? payload.submissions : [];
+      const remaining = typeof payload.remaining === 'number' ? payload.remaining : 0;
+      setStudentMarks(submissions);
+      setRemainingSubmissions(remaining);
     } catch (e) {
       console.error("Failed to load student marks", e);
+      setStudentMarks([]);
+      setRemainingSubmissions(0);
     } finally {
       setIsMarksLoading(false);
     }
-  }, [selectedLesson]);
+  }, [marksLesson, selectedLesson]);
 
   const handleViewSubmissionDetails = async (submissionId: number) => {
     setIsReviewLoading(submissionId);
@@ -619,10 +628,10 @@ function DashboardPageContent() {
   };
 
   useEffect(() => {
-    if (courseDetailsTab === "student-marks" && selectedLesson) {
+    if (courseDetailsTab === "student-marks" && (marksLesson || selectedLesson)) {
       loadStudentMarks();
     }
-  }, [courseDetailsTab, selectedLesson, loadStudentMarks]);
+  }, [courseDetailsTab, marksLesson, selectedLesson, loadStudentMarks]);
 
   // Loading indicators for actions
   const [actionLoading, setActionLoading] = useState(false);
@@ -1502,6 +1511,12 @@ function DashboardPageContent() {
     if (selectedCourse?.courseId && courseLessons.length === 0) {
       loadCourseLessons(selectedCourse.courseId);
     }
+    // Refresh selectedCourse from API to get updated enrolled count
+    if (selectedCourse?.courseId) {
+      api.get(`/courses/${selectedCourse.courseId}`).then((res) => {
+        setSelectedCourse(res.data);
+      }).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2185,12 +2200,39 @@ function DashboardPageContent() {
                       )}
 
 
-                      {courseDetailsTab === "student-marks" && (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Student Marks - {selectedLesson?.title || "No Lesson Selected"}</h4>
-                          {!selectedLesson ? (
-                            <p className="text-xs text-slate-400">Please select a lesson from the playlist to view student marks.</p>
-                          ) : isMarksLoading ? (
+{courseDetailsTab === "student-marks" && (
+                         <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                           <div className="flex items-center justify-between mb-3">
+                             <h4 className="font-bold text-slate-900 dark:text-zinc-50">Student Marks - {selectedLesson?.title || "No Lesson Selected"}</h4>
+                             <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full">
+                               {remainingSubmissions > 0 ? `${remainingSubmissions} submission${remainingSubmissions !== 1 ? 's' : ''} remaining` : 'All submissions evaluated'}
+                             </span>
+                           </div>
+                           <div className="mb-4">
+                             <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Lesson</label>
+                             <select
+                               value={marksLesson?.lessonId || selectedLesson?.lessonId || ""}
+                               onChange={(e) => {
+                                 const val = e.target.value;
+                                 if (val === "") {
+                                   setMarksLesson(null);
+                                 } else {
+                                   const found = courseLessons.find((l: any) => String(l.lessonId) === val);
+                                   setMarksLesson(found || null);
+                                 }
+                               }}
+                               className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                             >
+                               {courseLessons.map((l: any) => (
+                                 <option key={l.lessonId} value={l.lessonId}>
+                                   {l.title}
+                                 </option>
+                               ))}
+                             </select>
+                           </div>
+                           {!selectedLesson ? (
+                             <p className="text-xs text-slate-400">Please select a lesson from the playlist to view student marks.</p>
+                           ) : isMarksLoading ? (
                             <div className="flex flex-col items-center justify-center py-10 gap-3">
                               <Loader2 size={24} className="text-blue-500 animate-spin" />
                               <span className="text-xs text-slate-400 font-medium animate-pulse">Loading marks...</span>
@@ -2255,6 +2297,7 @@ function DashboardPageContent() {
                             selectedLesson={selectedLesson ?? (courseLessons.length > 0 ? courseLessons[0] : null)}
                             courseId={selectedCourse.courseId}
                             courseLessons={courseLessons}
+                            enrolledCount={selectedCourse.enrolled}
                           />
                         </div>
                       )}

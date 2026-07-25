@@ -12,9 +12,10 @@ interface LessonEvaluationViewProps {
   selectedLesson: any;
   courseId: number | string;
   courseLessons?: any[];
+  enrolledCount?: number;
 }
 
-export function LessonEvaluationView({ selectedLesson, courseId, courseLessons = [] }: LessonEvaluationViewProps) {
+export function LessonEvaluationView({ selectedLesson, courseId, courseLessons = [], enrolledCount = 0 }: LessonEvaluationViewProps) {
   const [activeLesson, setActiveLesson] = useState<any>(selectedLesson);
   const [tests, setTests] = useState<any[]>([]);
   const [pendingCounts, setPendingCounts] = useState<Record<number, number>>({});
@@ -689,9 +690,12 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
                 Table list of student submissions containing CQ and Video questions.
               </p>
             </div>
-            <span className="text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-full w-fit">
-              Submissions: {submissions.length}
-            </span>
+<span className="text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-full w-fit">
+               Submissions: {submissions.length}
+             </span>
+<span className="text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-3 py-1.5 rounded-full w-fit">
+                Remaining: {Math.max(0, enrolledCount - submissions.length)}
+              </span>
           </div>
 
           {loadingSubmissions ? (
