@@ -188,7 +188,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { logout, reloadProfile } = useAuth();
-  const { name, email, role, userId } = useUser();
+  const { name, email, role, userId, profilePictureUrl } = useUser();
   const { theme, toggle } = useTheme();
 
   // Dropdown & Modal States
@@ -200,8 +200,11 @@ export default function DashboardLayout({
   const [nameInput, setNameInput] = useState("");
   const [phoneInput, setPhoneInput] = useState("");
   const [addressInput, setAddressInput] = useState("");
+  const [profilePictureInput, setProfilePictureInput] = useState<File | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
+  
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
   const openEditModal = async () => {
     setIsDropdownOpen(false);
@@ -212,6 +215,7 @@ export default function DashboardLayout({
       setNameInput(res.data.name || "");
       setPhoneInput(res.data.phoneNumber || "");
       setAddressInput(res.data.address || "");
+      setProfilePictureInput(null);
     } catch (err) {
       console.error(err);
     }
@@ -222,10 +226,22 @@ export default function DashboardLayout({
     setProfileError("");
     setIsSavingProfile(true);
     try {
+      let finalProfilePictureUrl = undefined;
+      
+      if (profilePictureInput) {
+        const formData = new FormData();
+        formData.append("file", profilePictureInput);
+        const uploadRes = await api.post("/auth/upload-dp", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        finalProfilePictureUrl = uploadRes.data.url;
+      }
+
       await api.patch(`/auth/users/${userId}`, {
         name: nameInput,
         phoneNumber: phoneInput,
         address: addressInput,
+        ...(finalProfilePictureUrl && { profilePictureUrl: finalProfilePictureUrl }),
       });
       await reloadProfile();
       setIsEditModalOpen(false);
@@ -293,18 +309,28 @@ export default function DashboardLayout({
                       {role.toUpperCase()}
                     </p>
                   </div>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white dark:bg-blue-500">
-                    {name.charAt(0).toUpperCase()}
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white dark:bg-blue-500 overflow-hidden">
+                    {profilePictureUrl ? (
+                      <img src={`${backendUrl}${profilePictureUrl}`} alt={name} className="h-full w-full object-cover" />
+                    ) : (
+                      name.charAt(0).toUpperCase()
+                    )}
                   </div>
                 </div>
 
                 {/* Profile Header Dropdown Menu */}
                 {isDropdownOpen && (
-                  <div className="absolute right-0 mt-3 w-56 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-fadeIn">
-                    <div className="px-3.5 py-2 border-b border-slate-100 dark:border-zinc-800/80 mb-1">
-                      <p className="text-xs font-semibold text-slate-400">Signed in as</p>
-                      <p className="text-sm font-bold text-slate-900 truncate dark:text-zinc-50 mt-0.5">{name}</p>
-                      <p className="text-[10px] text-slate-400 truncate dark:text-zinc-500 mt-0.5">{email}</p>
+                  <div className="absolute right-0 mt-3 w-64 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-fadeIn">
+                    <div className="flex flex-col items-center p-4 border-b border-slate-100 dark:border-zinc-800/80 mb-2">
+                      <div className="h-20 w-20 overflow-hidden rounded-full border-2 border-blue-100 dark:border-blue-900 mb-3 flex items-center justify-center bg-blue-600 text-3xl font-bold text-white">
+                        {profilePictureUrl ? (
+                          <img src={`${backendUrl}${profilePictureUrl}`} alt={name} className="h-full w-full object-cover" />
+                        ) : (
+                          name.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <p className="text-base font-bold text-slate-900 truncate dark:text-zinc-50 w-full text-center">{name}</p>
+                      <p className="text-xs text-slate-400 truncate dark:text-zinc-500 mt-0.5 w-full text-center">{email}</p>
                     </div>
                     
                     <button
@@ -371,6 +397,20 @@ export default function DashboardLayout({
             )}
 
             <form onSubmit={handleSaveProfile} className="mt-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Profile Picture</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setProfilePictureInput(e.target.files[0]);
+                    }
+                  }}
+                  className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
+                />
+              </div>
+
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-slate-500">Full Name</label>
                 <input

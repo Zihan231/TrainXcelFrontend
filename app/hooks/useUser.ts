@@ -7,5 +7,6 @@ export function useUser() {
     email: user?.email ?? "",
     userId: user?.userId ?? "",
     role: user?.role ?? "",
+    profilePictureUrl: user?.profilePictureUrl ?? "",
   };
 }

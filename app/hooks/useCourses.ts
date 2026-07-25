@@ -36,6 +36,7 @@ export interface Course {
   totalLessons?: number;
   progress?: number;
   description?: string;
+  thumbnailUrl?: string;
 }
 
 export interface UserProfile {
@@ -46,6 +47,7 @@ export interface UserProfile {
   role: string;
   phoneNumber?: string;
   address?: string;
+  profilePictureUrl?: string;
 }
 
 export function useCourses() {
@@ -100,7 +102,7 @@ export function useCourses() {
     }
   }, []);
 
-  const createCourse = useCallback(async (courseData: { name: string; categoryId?: number; status?: string; description?: string }) => {
+  const createCourse = useCallback(async (courseData: { name: string; categoryId?: number; status?: string; description?: string; thumbnailUrl?: string }) => {
     try {
       const response = await api.post("/courses", courseData);
       return response.data;
@@ -134,7 +136,7 @@ export function useCourses() {
     []
   );
 
-  const updateCourse = useCallback(async (courseId: string, data: { name?: string; categoryId?: number; status?: string; description?: string }) => {
+  const updateCourse = useCallback(async (courseId: string, data: { name?: string; categoryId?: number; status?: string; description?: string; thumbnailUrl?: string }) => {
     try {
       const res = await api.patch(`/courses/${courseId}`, data);
       return res.data;

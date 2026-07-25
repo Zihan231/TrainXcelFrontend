@@ -432,6 +432,7 @@ function DashboardPageContent() {
   const [editCourseName, setEditCourseName] = useState("");
   const [editCourseCategoryId, setEditCourseCategoryId] = useState<number | null>(null);
   const [editCourseDescription, setEditCourseDescription] = useState("");
+  const [editCourseThumbnail, setEditCourseThumbnail] = useState<File | null>(null);
   const [isUpdatingCourse, setIsUpdatingCourse] = useState(false);
   const [editCourseFormError, setEditCourseFormError] = useState("");
   const [editCourseFormSuccess, setEditCourseFormSuccess] = useState("");
@@ -547,6 +548,7 @@ function DashboardPageContent() {
   const [newCourseCategory, setNewCourseCategory] = useState(1);
   const [newCourseStatus, setNewCourseStatus] = useState("draft");
   const [newCourseDescription, setNewCourseDescription] = useState("");
+  const [newCourseThumbnail, setNewCourseThumbnail] = useState<File | null>(null);
   const [courseFormError, setCourseFormError] = useState("");
   const [courseFormSuccess, setCourseFormSuccess] = useState("");
 
@@ -1037,16 +1039,28 @@ function DashboardPageContent() {
       `Are you sure you want to create the course "${newCourseName}"? It will initially be saved as a draft.`,
       async () => {
         try {
+          let thumbnailUrl = undefined;
+          if (newCourseThumbnail) {
+            const formData = new FormData();
+            formData.append("file", newCourseThumbnail);
+            const uploadRes = await api.post("/courses/upload-thumbnail", formData, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+            thumbnailUrl = uploadRes.data.url;
+          }
+
           await createCourse({
             name: newCourseName,
             categoryId: Number(newCourseCategory),
             status: newCourseStatus,
             description: newCourseDescription,
+            ...(thumbnailUrl && { thumbnailUrl }),
           });
           toast.success("Course created successfully!");
           setCourseFormSuccess("Course created successfully!");
           setNewCourseName("");
           setNewCourseDescription("");
+          setNewCourseThumbnail(null);
           fetchCourses();
           loadPaginatedCourses();
           setIsCreateCourseModalOpen(false);
@@ -1186,15 +1200,31 @@ function DashboardPageContent() {
     setEditCourseFormSuccess("");
     setIsUpdatingCourse(true);
     try {
+      let thumbnailUrl = undefined;
+      
+      if (editCourseThumbnail) {
+        const formData = new FormData();
+        formData.append("file", editCourseThumbnail);
+        const uploadRes = await api.post("/courses/upload-thumbnail", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        thumbnailUrl = uploadRes.data.url;
+      }
+
       const updated = await updateCourse(selectedCourse.courseId, {
         name: editCourseName,
         categoryId: editCourseCategoryId || undefined,
         description: editCourseDescription,
+        ...(thumbnailUrl && { thumbnailUrl }),
       });
       setSelectedCourse(updated);
+      toast.success("Course updated successfully!");
+      if (thumbnailUrl) toast.success("Thumbnail updated!");
       setEditCourseFormSuccess("Course updated successfully!");
+      setEditCourseThumbnail(null);
       setTimeout(() => setEditCourseFormSuccess(""), 10000);
       fetchCourses();
+      loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
     } catch (err: any) {
       setEditCourseFormError(err.message || "Failed to update course.");
     } finally {
@@ -1504,6 +1534,9 @@ function DashboardPageContent() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
+                // Refresh course list so updated info (thumbnail, name, etc.) is visible
+                loadPaginatedCourses(courseSearchQuery, courseFilterCategoryId, courseFilterStatus);
+                fetchCourses();
                 setSelectedCourse(null);
                 setSelectedLesson(null);
                 setCourseDetailsTab("player");
@@ -1836,6 +1869,19 @@ function DashboardPageContent() {
                                       </option>
                                     ))}
                                   </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Thumbnail</label>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      if (e.target.files && e.target.files[0]) {
+                                        setEditCourseThumbnail(e.target.files[0]);
+                                      }
+                                    }}
+                                    className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                                  />
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Description</label>
@@ -2943,45 +2989,58 @@ function DashboardPageContent() {
             {coursesToRender.map((c) => (
               <div
                 key={c.courseId}
-                className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-slate-300 dark:border-zinc-800 dark:bg-[#121212] dark:hover:border-zinc-700 transition flex flex-col justify-between"
+                className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-slate-300 dark:border-zinc-800 dark:bg-[#121212] dark:hover:border-zinc-700 transition flex flex-col justify-between"
               >
-                <div>
-                  <div className="flex justify-between items-center mb-2">
+                <div className="w-full aspect-video bg-slate-100 dark:bg-zinc-800 relative overflow-hidden border-b border-slate-100 dark:border-zinc-800">
+                  {c.thumbnailUrl ? (
+                    <img src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}${c.thumbnailUrl}`} alt={c.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 dark:text-zinc-600 bg-slate-50 dark:bg-zinc-800/50">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-1 opacity-50"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      <span className="text-[10px] font-semibold tracking-wider uppercase opacity-75">No Image</span>
+                    </div>
+                  )}
+                  <div className="absolute top-3 right-3">
+                    <select
+                      value={c.status}
+                      onChange={(e) => handleUpdateCourseStatus(c.courseId, e.target.value)}
+                      className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer focus:outline-none transition shadow-sm backdrop-blur-md ${c.status === "active" ? "bg-green-500/90 text-white border-green-500/20" : c.status === "draft" ? "bg-amber-500/90 text-white border-amber-500/20" : "bg-rose-500/90 text-white border-rose-500/20"}`}
+                    >
+                      <option value="draft" className="bg-white text-slate-900 dark:bg-zinc-900 dark:text-zinc-100">Draft</option>
+                      <option value="active" className="bg-white text-slate-900 dark:bg-zinc-900 dark:text-zinc-100">Active</option>
+                      <option value="inactive" className="bg-white text-slate-900 dark:bg-zinc-900 dark:text-zinc-100">Inactive</option>
+                    </select>
+                  </div>
+                  <div className="absolute top-3 left-3">
                     {(() => {
                       const catName = (c as any).category?.name || (c.categoryId === 1 ? "Software" : c.categoryId === 2 ? "Business" : "Compliance");
                       const catStyle = getCategoryStyle(catName);
                       return (
-                        <span className={`inline-block rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text}`}>
+                        <span className={`inline-block rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text} bg-white/95 dark:bg-black/95 backdrop-blur-md shadow-sm border-white/20 dark:border-black/20`}>
                           {catName}
                         </span>
                       );
                     })()}
-                    <select
-                      value={c.status}
-                      onChange={(e) => handleUpdateCourseStatus(c.courseId, e.target.value)}
-                      className={`rounded-lg border px-1.5 py-0.5 text-[10px] font-bold uppercase cursor-pointer focus:outline-none transition ${c.status === "active" ? "bg-green-50 text-green-600 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/30" : c.status === "draft" ? "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30" : "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30"}`}
-                    >
-                      <option value="draft">Draft</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
                   </div>
-
-                  <h4 className="text-base font-bold text-slate-900 group-hover:text-blue-600 transition dark:text-zinc-50 dark:group-hover:text-blue-400 line-clamp-1">{c.name}</h4>
-                  <p className="text-[11px] text-slate-450 dark:text-zinc-500 font-mono mt-0.5">ID: {c.courseId}</p>
                 </div>
 
-                <div className="mt-5 pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
-                  <div className="flex gap-4">
-                    <div className="text-left">
-                      <span className="text-[10px] text-slate-400 block font-medium">Chapters</span>
-                      <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{(c as any).totalLessons ?? c.lessons?.length ?? 0}</span>
-                    </div>
-                    <div className="text-left">
-                      <span className="text-[10px] text-slate-400 block font-medium">Learners</span>
-                      <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.enrolled}</span>
-                    </div>
+                <div className="p-4 flex flex-col flex-1">
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900 group-hover:text-blue-600 transition dark:text-zinc-50 dark:group-hover:text-blue-400 line-clamp-2 leading-tight">{c.name}</h4>
+                    <p className="text-[11px] text-slate-450 dark:text-zinc-500 font-mono mt-1.5">ID: {c.courseId}</p>
                   </div>
+
+                  <div className="mt-5 pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+                    <div className="flex gap-4">
+                      <div className="text-left">
+                        <span className="text-[10px] text-slate-400 block font-medium">Chapters</span>
+                        <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{(c as any).totalLessons ?? c.lessons?.length ?? 0}</span>
+                      </div>
+                      <div className="text-left">
+                        <span className="text-[10px] text-slate-400 block font-medium">Learners</span>
+                        <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.enrolled}</span>
+                      </div>
+                    </div>
 
                   <div className="flex gap-2 items-center">
                     <button
@@ -3010,6 +3069,7 @@ function DashboardPageContent() {
                     >
                       Manage Details →
                     </button>
+                  </div>
                   </div>
                 </div>
               </div>
@@ -3570,45 +3630,60 @@ function DashboardPageContent() {
               return (
                 <div
                   key={c.courseId}
-                  className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-slate-300 dark:border-zinc-800 dark:bg-[#121212] dark:hover:border-zinc-700 transition flex flex-col justify-between"
+                  className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-slate-300 dark:border-zinc-800 dark:bg-[#121212] dark:hover:border-zinc-700 transition flex flex-col justify-between"
                 >
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className={`inline-block rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text}`}>
+                  <div className="w-full aspect-video bg-slate-100 dark:bg-zinc-800 relative overflow-hidden border-b border-slate-100 dark:border-zinc-800">
+                    {c.thumbnailUrl ? (
+                      <img src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000"}${c.thumbnailUrl}`} alt={c.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 dark:text-zinc-600 bg-slate-50 dark:bg-zinc-800/50">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-1 opacity-50"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                        <span className="text-[10px] font-semibold tracking-wider uppercase opacity-75">No Image</span>
+                      </div>
+                    )}
+                    <div className="absolute top-3 right-3">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-white bg-black/60 px-2 py-1 rounded-full backdrop-blur-md shadow-sm border border-white/10">ACTIVE</span>
+                    </div>
+                    <div className="absolute top-3 left-3">
+                      <span className={`inline-block rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${catStyle.bg} ${catStyle.text} bg-white/95 dark:bg-black/95 backdrop-blur-md shadow-sm border-white/20 dark:border-black/20`}>
                         {catName}
                       </span>
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">ACTIVE</span>
                     </div>
-                    <h4 className="text-base font-bold text-slate-900 group-hover:text-blue-600 transition dark:text-zinc-50 line-clamp-1">{c.name}</h4>
-                    <p className="text-[11px] text-slate-450 dark:text-zinc-500 font-mono mt-0.5">ID: {c.courseId}</p>
                   </div>
-
-                  <div className="mt-5 pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
-                    <div className="text-left">
-                      <span className="text-[10px] text-slate-400 block font-medium">Chapters</span>
-                      <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.totalLessons ?? c.lessons?.length ?? 0}</span>
+                  
+                  <div className="p-4 flex flex-col flex-1">
+                    <div>
+                      <h4 className="text-base font-bold text-slate-900 group-hover:text-blue-600 transition dark:text-zinc-50 line-clamp-2 leading-tight">{c.name}</h4>
+                      <p className="text-[11px] text-slate-450 dark:text-zinc-500 font-mono mt-1.5">ID: {c.courseId}</p>
                     </div>
 
-                    {isEnrolled ? (
-                      <button
-                        onClick={async () => {
-                          setCourseSourceTab("catalog");
-                          setSelectedCourse(c);
-                          await loadCourseLessons(c.courseId, true);
-                        }}
-                        className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                      >
-                        Resume →
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleEnroll(c)}
-                        disabled={actionLoading}
-                        className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 transition disabled:opacity-50"
-                      >
-                        Enroll Now
-                      </button>
-                    )}
+                    <div className="mt-5 pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+                      <div className="text-left">
+                        <span className="text-[10px] text-slate-400 block font-medium">Chapters</span>
+                        <span className="text-sm font-bold text-slate-800 dark:text-zinc-200">{c.totalLessons ?? c.lessons?.length ?? 0}</span>
+                      </div>
+
+                      {isEnrolled ? (
+                        <button
+                          onClick={async () => {
+                            setCourseSourceTab("catalog");
+                            setSelectedCourse(c);
+                            await loadCourseLessons(c.courseId, true);
+                          }}
+                          className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                        >
+                          Resume →
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleEnroll(c)}
+                          disabled={actionLoading}
+                          className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50 shadow-sm"
+                        >
+                          Enroll Now
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -4462,6 +4537,19 @@ function DashboardPageContent() {
                   <option value="draft">Draft mode (Hidden)</option>
                   <option value="active">Active (Deploy to Catalog)</option>
                 </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Course Thumbnail <span className="text-slate-400 font-normal">(optional)</span></label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setNewCourseThumbnail(e.target.files[0]);
+                    }
+                  }}
+                  className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800"
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-slate-500">Course Description <span className="text-slate-400 font-normal">(optional)</span></label>
