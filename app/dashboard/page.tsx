@@ -5095,6 +5095,7 @@ function DashboardPageContent() {
         <UserDetailsModal
           user={viewUserModalUser}
           onClose={() => setViewUserModalUser(null)}
+          setFullscreenImage={setFullscreenImage}
         />
       )}
 
@@ -5268,9 +5269,10 @@ function CourseDetailsModal({ course, onClose, onEnroll, isAdminOrEmployee, lear
 interface UserDetailsModalProps {
   user: any;
   onClose: () => void;
+  setFullscreenImage: (url: string | null) => void;
 }
 
-function UserDetailsModal({ user, onClose }: UserDetailsModalProps) {
+function UserDetailsModal({ user, onClose, setFullscreenImage }: UserDetailsModalProps) {
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
@@ -5315,7 +5317,11 @@ function UserDetailsModal({ user, onClose }: UserDetailsModalProps) {
         <div className="p-5 flex flex-col gap-4 overflow-y-auto">
           {/* User profile details header */}
           <div className="flex flex-col sm:flex-row items-center gap-3 bg-slate-50/50 dark:bg-zinc-800/20 py-2.5 px-3.5 rounded-xl border border-slate-100 dark:border-zinc-850">
-            <div className="h-12 w-12 overflow-hidden rounded-full border border-slate-200 dark:border-zinc-700 flex items-center justify-center bg-blue-600 text-lg font-bold text-white shrink-0">
+            <div 
+              onClick={() => user.profilePictureUrl && setFullscreenImage(`${backendUrl}${user.profilePictureUrl}`)}
+              className={`h-12 w-12 overflow-hidden rounded-full border border-slate-200 dark:border-zinc-700 flex items-center justify-center bg-blue-600 text-lg font-bold text-white shrink-0 ${user.profilePictureUrl ? 'cursor-pointer hover:opacity-90 transition' : ''}`}
+              title={user.profilePictureUrl ? "Click to view full screen" : undefined}
+            >
               {user.profilePictureUrl ? (
                 <img src={`${backendUrl}${user.profilePictureUrl}`} alt={user.name} className="h-full w-full object-cover" />
               ) : (
