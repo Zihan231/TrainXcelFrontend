@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, ChevronDown, ChevronUp, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download, AlertTriangle } from "lucide-react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download, AlertTriangle } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
@@ -577,7 +577,7 @@ export function TestPlayer({
                       <Trash2 size={16} />
                     </button>
                   )}
-                  {expandedTestId === test.id ? <ChevronUp size={16} className="text-slate-400 ml-1" /> : <ChevronDown size={16} className="text-slate-400 ml-1" />}
+                  {expandedTestId === test.id ? <Edit2 size={16} className="text-slate-400 ml-1" /> : <Edit2 size={16} className="text-slate-400 ml-1" />}
                 </div>
               </div>
 
