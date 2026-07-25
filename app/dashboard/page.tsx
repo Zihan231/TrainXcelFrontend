@@ -422,6 +422,7 @@ function DashboardPageContent() {
   const [viewCourseModalCourse, setViewCourseModalCourse] = useState<any | null>(null);
   const [modalCourseDetails, setModalCourseDetails] = useState<any | null>(null);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [viewUserModalUser, setViewUserModalUser] = useState<any | null>(null);
   const [newCategoryNameInput, setNewCategoryNameInput] = useState("");
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<number | null>(null);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -3320,12 +3321,13 @@ function DashboardPageContent() {
                   <th className="py-3 px-4 font-semibold text-xs uppercase">Role</th>
                   <th className="py-3 px-4 font-semibold text-xs uppercase">Phone Number</th>
                   <th className="py-3 px-4 font-semibold text-xs uppercase">Address</th>
+                  <th className="py-3 px-4 font-semibold text-xs uppercase text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {isUsersLoading ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       <div className="flex justify-center items-center gap-2">
                         <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                         <span>Querying user records...</span>
@@ -3334,7 +3336,7 @@ function DashboardPageContent() {
                   </tr>
                 ) : listToRender.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       No matching user accounts found.
                     </td>
                   </tr>
@@ -3351,7 +3353,7 @@ function DashboardPageContent() {
                       <td className="py-4 px-4 text-slate-500 dark:text-zinc-400">{u.email}</td>
                       <td className="py-4 px-4">
                         <select
-                          value={u.role} onChange={(e) => handleRoleChange(u.userId, e.target.value)}
+                           value={u.role} onChange={(e) => handleRoleChange(u.userId, e.target.value)}
                           className="rounded-lg border border-slate-200 bg-white p-1 text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
                         >
                           <option value="user">User (Learner)</option>
@@ -3361,6 +3363,15 @@ function DashboardPageContent() {
                       </td>
                       <td className="py-4 px-4 text-slate-500 dark:text-zinc-400">{u.phoneNumber || "N/A"}</td>
                       <td className="py-4 px-4 text-slate-500 dark:text-zinc-400 max-w-xs truncate">{u.address || "N/A"}</td>
+                      <td className="py-4 px-4 text-right">
+                        <button
+                          onClick={() => setViewUserModalUser(u)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-900/40"
+                        >
+                          <Eye size={12} />
+                          <span>See Details</span>
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -5079,6 +5090,14 @@ function DashboardPageContent() {
         />
       )}
 
+      {/* User Details Modal */}
+      {viewUserModalUser && (
+        <UserDetailsModal
+          user={viewUserModalUser}
+          onClose={() => setViewUserModalUser(null)}
+        />
+      )}
+
       {fullscreenImage && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4" onClick={() => setFullscreenImage(null)}>
           <button
@@ -5239,6 +5258,144 @@ function CourseDetailsModal({ course, onClose, onEnroll, isAdminOrEmployee, lear
             >
               Enroll Now
             </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface UserDetailsModalProps {
+  user: any;
+  onClose: () => void;
+}
+
+function UserDetailsModal({ user, onClose }: UserDetailsModalProps) {
+  const [courses, setCourses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api.get(`/courses/user-learning/${user.userId}`)
+      .then((res) => {
+        if (active) {
+          setCourses(res.data?.data || []);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load user courses", err);
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [user.userId]);
+
+  const completedCount = courses.filter((c) => c.progress === 100).length;
+  const enrolledCount = courses.length;
+  const sumProgress = courses.reduce((sum, c) => sum + (c.progress || 0), 0);
+  const avgProgress = enrolledCount > 0 ? Math.round(sumProgress / enrolledCount) : 0;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn" onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+          <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50">User Performance & Details</h3>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 transition">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+          {/* User profile details header */}
+          <div className="flex flex-col sm:flex-row items-center gap-3 bg-slate-50/50 dark:bg-zinc-800/20 py-2.5 px-3.5 rounded-xl border border-slate-100 dark:border-zinc-850">
+            <div className="h-12 w-12 overflow-hidden rounded-full border border-slate-200 dark:border-zinc-700 flex items-center justify-center bg-blue-600 text-lg font-bold text-white shrink-0">
+              {user.profilePictureUrl ? (
+                <img src={`${backendUrl}${user.profilePictureUrl}`} alt={user.name} className="h-full w-full object-cover" />
+              ) : (
+                user.name.charAt(0).toUpperCase()
+              )}
+            </div>
+            <div className="flex-1 text-center sm:text-left min-w-0">
+              <h4 className="text-base font-bold text-slate-900 dark:text-zinc-50 truncate">{user.name}</h4>
+              <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">{user.email}</p>
+              <div className="mt-0.5 flex flex-wrap gap-2 justify-center sm:justify-start">
+                <span className="inline-block rounded-full bg-blue-100 dark:bg-blue-950 px-2 py-0.5 text-[9px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
+                  {user.role}
+                </span>
+                <span className="text-[9px] text-slate-400 font-mono self-center">ID: {user.userId}</span>
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-3 flex-1">
+              <Loader2 size={32} className="text-blue-500 animate-spin" />
+              <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500 animate-pulse">Querying performance analytics...</span>
+            </div>
+          ) : (
+            <>
+              {/* User metadata properties grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+                <div className="p-2 bg-slate-50/30 dark:bg-zinc-800/10 rounded-xl border border-slate-100 dark:border-zinc-850">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Phone Number</span>
+                  <span className="text-xs font-semibold text-slate-700 dark:text-zinc-200">{user.phoneNumber || "Not Specified"}</span>
+                </div>
+                <div className="p-2 bg-slate-50/30 dark:bg-zinc-800/10 rounded-xl border border-slate-100 dark:border-zinc-850">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Address</span>
+                  <span className="text-xs font-semibold text-slate-700 dark:text-zinc-200 truncate block">{user.address || "Not Specified"}</span>
+                </div>
+              </div>
+
+              {/* Stats Breakdown */}
+              <div className="grid grid-cols-3 gap-3 shrink-0">
+                <div className="p-2 bg-blue-50/40 dark:bg-blue-900/10 rounded-xl border border-blue-100/50 dark:border-blue-900/30 text-center">
+                  <span className="text-[9px] text-blue-500 font-bold uppercase tracking-wider block mb-0.5">Enrolled</span>
+                  <span className="text-lg font-bold text-blue-700 dark:text-blue-400">{enrolledCount}</span>
+                </div>
+                <div className="p-2 bg-emerald-50/40 dark:bg-emerald-900/10 rounded-xl border border-emerald-100/50 dark:border-emerald-900/30 text-center">
+                  <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider block mb-0.5">Completed</span>
+                  <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{completedCount}</span>
+                </div>
+                <div className="p-2 bg-amber-50/40 dark:bg-amber-900/10 rounded-xl border border-amber-100/50 dark:border-amber-900/30 text-center">
+                  <span className="text-[9px] text-amber-500 font-bold uppercase tracking-wider block mb-0.5">Avg Progress</span>
+                  <span className="text-lg font-bold text-amber-700 dark:text-amber-400">{avgProgress}%</span>
+                </div>
+              </div>
+
+              {/* Topics Performance Breakdown */}
+              <div className="flex flex-col flex-1 min-h-[220px]">
+                <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-2.5 text-sm">Course Performance Details</h4>
+                {courses.length === 0 ? (
+                  <div className="text-center py-10 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 flex-1 flex flex-col items-center justify-center">
+                    <p className="text-xs text-slate-400">This user is not enrolled in any courses yet.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3 overflow-y-auto max-h-[48vh] pr-1">
+                    {courses.map((c, index) => (
+                      <div key={`${c.courseId || c.id || index}-${index}`} className="p-3 rounded-xl border border-slate-100 dark:border-zinc-800 bg-slate-50/20 dark:bg-zinc-900/10 flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 block leading-tight">{c.name}</span>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">ID: {c.courseId}</span>
+                          </div>
+                          <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{c.progress}%</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                          <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${c.progress}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
