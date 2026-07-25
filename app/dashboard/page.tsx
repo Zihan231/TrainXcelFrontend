@@ -5188,6 +5188,17 @@ function CourseDetailsModal({ course, onClose, onEnroll, isAdminOrEmployee, lear
   const isEnrolled = learnerProgress[course.courseId] !== undefined && learnerProgress[course.courseId] >= 0;
   const catName = (course as any).category?.name || (course.categoryId === 1 ? "Software" : course.categoryId === 2 ? "Business" : "Compliance");
 
+  useEffect(() => {
+    const scrollContainer = document.querySelector("main > div.overflow-y-auto") as HTMLElement;
+    if (scrollContainer) {
+      const originalOverflow = scrollContainer.style.overflowY || "auto";
+      scrollContainer.style.overflowY = "hidden";
+      return () => {
+        scrollContainer.style.overflowY = originalOverflow;
+      };
+    }
+  }, []);
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn" onClick={onClose}>
       <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800" onClick={(e) => e.stopPropagation()}>
@@ -5276,6 +5287,17 @@ function UserDetailsModal({ user, onClose, setFullscreenImage }: UserDetailsModa
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
+  useEffect(() => {
+    const scrollContainer = document.querySelector("main > div.overflow-y-auto") as HTMLElement;
+    if (scrollContainer) {
+      const originalOverflow = scrollContainer.style.overflowY || "auto";
+      scrollContainer.style.overflowY = "hidden";
+      return () => {
+        scrollContainer.style.overflowY = originalOverflow;
+      };
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
