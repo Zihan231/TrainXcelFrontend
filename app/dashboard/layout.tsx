@@ -203,6 +203,7 @@ export default function DashboardLayout({
   const [profilePictureInput, setProfilePictureInput] = useState<File | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
+  const [isViewingDp, setIsViewingDp] = useState(false);
   
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
@@ -322,7 +323,11 @@ export default function DashboardLayout({
                 {isDropdownOpen && (
                   <div className="absolute right-0 mt-3 w-64 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-fadeIn">
                     <div className="flex flex-col items-center p-4 border-b border-slate-100 dark:border-zinc-800/80 mb-2">
-                      <div className="h-20 w-20 overflow-hidden rounded-full border-2 border-blue-100 dark:border-blue-900 mb-3 flex items-center justify-center bg-blue-600 text-3xl font-bold text-white">
+                      <div
+                        className={`h-20 w-20 overflow-hidden rounded-full border-2 border-blue-100 dark:border-blue-900 mb-3 flex items-center justify-center bg-blue-600 text-3xl font-bold text-white ${profilePictureUrl ? 'cursor-pointer hover:opacity-90 transition' : ''}`}
+                        onClick={() => profilePictureUrl && setIsViewingDp(true)}
+                        title={profilePictureUrl ? "Click to view full size" : undefined}
+                      >
                         {profilePictureUrl ? (
                           <img src={`${backendUrl}${profilePictureUrl}`} alt={name} className="h-full w-full object-cover" />
                         ) : (
@@ -350,6 +355,8 @@ export default function DashboardLayout({
                     </button>
                   </div>
                 )}
+
+
               </div>
             </div>
           </header>
@@ -360,6 +367,32 @@ export default function DashboardLayout({
           </div>
         </main>
       </div>
+
+      {/* Full-size DP Lightbox — rendered at root level so fixed positioning is relative to viewport */}
+      {isViewingDp && profilePictureUrl && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setIsViewingDp(false)}
+        >
+          <div
+            className="relative flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={`${backendUrl}${profilePictureUrl}`}
+              alt={name}
+              className="max-h-[80vh] max-w-[80vw] rounded-2xl shadow-2xl object-contain border-4 border-white/10"
+            />
+            <button
+              onClick={() => setIsViewingDp(false)}
+              className="absolute -top-4 -right-4 h-9 w-9 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-lg hover:bg-slate-100 transition font-bold text-lg leading-none"
+            >
+              ✕
+            </button>
+            <p className="text-center text-white/70 text-sm mt-4 font-medium">{name}</p>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Sidebar Drawer Overlay */}
       {isMobileOpen && (
