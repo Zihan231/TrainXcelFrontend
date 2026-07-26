@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState } from "react";
 import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams, usePathname } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { useUser } from "@/hooks/useUser";
@@ -39,8 +39,12 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
   const { logout } = useAuth();
   const { name, email, role } = useUser();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const defaultTab = role === "admin" || role === "employee" ? "overview" : "progress";
-  const currentTab = searchParams.get("tab") || defaultTab;
+  const currentTab = pathname === "/dashboard" ? (searchParams.get("tab") || defaultTab) : searchParams.get("tab");
+
+  const isManageCoursesActive = currentTab === "manage-courses" || pathname?.startsWith("/dashboard/courses");
+  const isMyLearningActive = currentTab === "my-learning" || currentTab === "overview" || pathname?.startsWith("/dashboard/learn");
 
   const isAdminOrEmployee = role === "admin" || role === "employee";
   const isAdmin = role === "admin";
@@ -99,7 +103,7 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
               icon={<PlusCircle size={18} />}
               label="Manage Courses"
               href="/dashboard?tab=manage-courses"
-              active={currentTab === "manage-courses"}
+              active={isManageCoursesActive}
               onClick={onClose}
             />
             {isAdmin && (
@@ -125,7 +129,7 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
               icon={<BookOpen size={18} />}
               label="My Learning"
               href="/dashboard?tab=my-learning"
-              active={currentTab === "my-learning" || currentTab === "overview"}
+              active={isMyLearningActive}
               onClick={onClose}
             />
             <NavItem
@@ -525,20 +529,27 @@ function NavItem({
   className?: string;
   onClick?: () => void;
 }) {
-  const router = useRouter();
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleClick = () => {
     onClick?.();
-    const url = new URL(href, window.location.origin);
+  };
+
+  // Build the href with a stable _r timestamp so each click produces a unique URL
+  // We use a ref so the timestamp only changes on click, not on every render
+  const [clickedHref, setClickedHref] = React.useState(href);
+
+  const handleMouseDown = () => {
+    const url = new URL(href, typeof window !== "undefined" ? window.location.origin : "http://localhost");
     url.searchParams.set("_r", Date.now().toString());
-    router.push(url.pathname + url.search);
+    setClickedHref(url.pathname + url.search);
   };
 
   return (
     <Link
-      href={href}
+      href={clickedHref}
       onClick={handleClick}
+      onMouseDown={handleMouseDown}
+      onTouchStart={handleMouseDown}
+      prefetch={false}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
         active
           ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"

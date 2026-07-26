@@ -1,0 +1,1349 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { api } from "@/libs/api";
+import { useCourses, Course, Lesson } from "@/hooks/useCourses";
+import { useTheme } from "@/context/ThemeContext";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { TestBuilder } from "@/components/TestBuilder";
+import { TestPlayer } from "@/components/TestPlayer";
+import { LessonEvaluationView } from "@/components/LessonEvaluationView";
+import { toast } from "react-hot-toast";
+import {
+  ArrowLeft, Play, FileText, Check, CheckCircle, ExternalLink,
+  Maximize2, MonitorPlay, Sparkles, Settings, Pencil, Trash2,
+  Award, Trophy, Loader2, Clock, Eye, X,
+} from "lucide-react";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function detectMaterialType(link: string): "Video" | "PDF" | "PPT" | "DOCX" {
+  if (!link) return "Video";
+  const n = link.toLowerCase().split("?")[0];
+  if (n.includes("youtube.com") || n.includes("youtu.be") || [".mp4", ".mov", ".avi", ".webm", ".ogg"].some(e => n.endsWith(e))) return "Video";
+  if (n.endsWith(".pdf")) return "PDF";
+  if (n.endsWith(".ppt") || n.endsWith(".pptx")) return "PPT";
+  if (n.endsWith(".doc") || n.endsWith(".docx")) return "DOCX";
+  return "Video";
+}
+
+function getEmbedLink(url: string): string {
+  if (!url) return "";
+  try {
+    if (url.includes("youtube.com/watch")) {
+      const v = new URL(url).searchParams.get("v");
+      if (v) return `https://www.youtube.com/embed/${v}`;
+    }
+    if (url.includes("youtu.be/")) {
+      const id = url.split("/").pop()?.split("?")[0];
+      if (id) return `https://www.youtube.com/embed/${id}`;
+    }
+  } catch {}
+  return url;
+}
+
+function DocxViewer({ url }: { url: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadDocx = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch document");
+        const arrayBuffer = await response.arrayBuffer();
+        const docx = await import("docx-preview");
+        if (active && containerRef.current) {
+          containerRef.current.innerHTML = "";
+          await docx.renderAsync(arrayBuffer, containerRef.current, undefined, {
+            inWrapper: true, ignoreWidth: false, ignoreHeight: false,
+            ignoreFonts: false, breakPages: true, experimental: true,
+          });
+        }
+      } catch (err: any) {
+        if (active) setError("Could not render document. It may be password protected or corrupted.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    loadDocx();
+    return () => { active = false; };
+  }, [url]);
+
+  return (
+    <div className="w-full h-full bg-white text-slate-800 overflow-y-auto flex flex-col p-4 relative select-text text-left">
+      {loading && (
+        <div className="absolute inset-0 bg-white/90 flex items-center justify-center z-10">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+            <span className="text-xs text-slate-500 font-semibold">Rendering Word Document...</span>
+          </div>
+        </div>
+      )}
+      {error ? (
+        <div className="flex flex-col items-center justify-center h-full text-center p-4">
+          <p className="text-sm font-bold text-red-500">{error}</p>
+          <a href={url} download className="mt-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2">
+            Download Document instead
+          </a>
+        </div>
+      ) : (
+        <div ref={containerRef} className="w-full docx-render-container" />
+      )}
+    </div>
+  );
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+interface CourseDetailViewProps {
+  courseId: string;
+  backUrl: string;       // e.g. "/dashboard?tab=manage-courses" or "/dashboard?tab=my-learning"
+  isAdminOrEmployee: boolean;
+  isAdmin: boolean;
+  userId: string;
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export function CourseDetailView({
+  courseId,
+  backUrl,
+  isAdminOrEmployee,
+  isAdmin,
+  userId,
+}: CourseDetailViewProps) {
+  const router = useRouter();
+  const { theme } = useTheme();
+  const {
+    addLesson, updateLesson, softDeleteLesson, softDeleteCourse,
+    completeLesson, enrollInCourse, updateCourse, fetchCourses,
+    updateUserRole,
+  } = useCourses();
+
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+  const apiBase = api.defaults.baseURL?.replace("/api", "") || "http://localhost:3001";
+
+  const playerRef = useRef<HTMLDivElement>(null);
+  const standalonePlayerRef = useRef<HTMLDivElement>(null);
+
+  // ── Course State ──────────────────────────────────────────────────────────
+  const [course, setCourse] = useState<Course | null>(null);
+  const [isLoadingCourse, setIsLoadingCourse] = useState(true);
+
+  // ── Lessons State ─────────────────────────────────────────────────────────
+  const [courseLessons, setCourseLessons] = useState<Lesson[]>([]);
+  const [lessonsLoading, setLessonsLoading] = useState(false);
+  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+
+  // ── Learner Progress ──────────────────────────────────────────────────────
+  const [learnerProgress, setLearnerProgress] = useState<number>(0);
+  const [completedLessons, setCompletedLessons] = useState<string[]>([]);
+
+  // ── Test State ────────────────────────────────────────────────────────────
+  const [hasTests, setHasTests] = useState(false);
+  const [showTestPlayer, setShowTestPlayer] = useState(false);
+  const [standaloneExams, setStandaloneExams] = useState<any[]>([]);
+  const [standaloneExamsLoading, setStandaloneExamsLoading] = useState(false);
+  const [selectedStandaloneExam, setSelectedStandaloneExam] = useState<any | null>(null);
+  const [isNextLessonTransition, setIsNextLessonTransition] = useState(false);
+
+  // ── Admin Tabs ────────────────────────────────────────────────────────────
+  const [courseDetailsTab, setCourseDetailsTab] = useState<
+    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "leaderboard"
+  >("player");
+  const [showCourseSettingsEdit, setShowCourseSettingsEdit] = useState(false);
+  const [showAddTestForm, setShowAddTestForm] = useState(false);
+
+  // ── Edit Course ───────────────────────────────────────────────────────────
+  const [editCourseName, setEditCourseName] = useState("");
+  const [editCourseCategoryId, setEditCourseCategoryId] = useState<number | null>(null);
+  const [editCourseDescription, setEditCourseDescription] = useState("");
+  const [editCourseThumbnail, setEditCourseThumbnail] = useState<File | null>(null);
+  const [isUpdatingCourse, setIsUpdatingCourse] = useState(false);
+  const [editCourseFormError, setEditCourseFormError] = useState("");
+  const [editCourseFormSuccess, setEditCourseFormSuccess] = useState("");
+  const [categoriesList, setCategoriesList] = useState<{ categoryId: number; categoryName: string }[]>([]);
+
+  // ── Edit Lesson ───────────────────────────────────────────────────────────
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [editLessonTitle, setEditLessonTitle] = useState("");
+  const [editLessonDescription, setEditLessonDescription] = useState("");
+  const [editLessonLink, setEditLessonLink] = useState("");
+  const [editLessonType, setEditLessonType] = useState<"Video" | "PDF" | "PPT" | "DOCX">("Video");
+  const [editLessonInputMode, setEditLessonInputMode] = useState<"link" | "file">("link");
+  const [isUpdatingLesson, setIsUpdatingLesson] = useState(false);
+  const [isUploadingEditFile, setIsUploadingEditFile] = useState(false);
+  const [editLessonError, setEditLessonError] = useState("");
+
+  // ── Add Lesson ────────────────────────────────────────────────────────────
+  const [newLessonTitle, setNewLessonTitle] = useState("");
+  const [newLessonDescription, setNewLessonDescription] = useState("");
+  const [newLessonType, setNewLessonType] = useState("Video");
+  const [newLessonLink, setNewLessonLink] = useState("");
+  const [lessonInputMode, setLessonInputMode] = useState<"link" | "upload">("link");
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [isDeployingLesson, setIsDeployingLesson] = useState(false);
+  const [lessonFormError, setLessonFormError] = useState("");
+  const [lessonFormSuccess, setLessonFormSuccess] = useState("");
+
+  // ── Student Marks ─────────────────────────────────────────────────────────
+  const [studentMarks, setStudentMarks] = useState<any[]>([]);
+  const [remainingSubmissions, setRemainingSubmissions] = useState(0);
+  const [isMarksLoading, setIsMarksLoading] = useState(false);
+  const [marksLesson, setMarksLesson] = useState<any | null>(null);
+  const [reviewStudentSubmission, setReviewStudentSubmission] = useState<any | null>(null);
+  const [isReviewLoading, setIsReviewLoading] = useState<number | null>(null);
+
+  // ── Admin Leaderboard ─────────────────────────────────────────────────────
+  const [adminLeaderboardLessonId, setAdminLeaderboardLessonId] = useState<string>("");
+  const [adminLeaderboardData, setAdminLeaderboardData] = useState<any[]>([]);
+  const [isAdminLeaderboardLoading, setIsAdminLeaderboardLoading] = useState(false);
+
+  // ── Course Info Modal (Learner) ────────────────────────────────────────────
+  const [viewCourseModalOpen, setViewCourseModalOpen] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+
+  // ── Confirm Modal ─────────────────────────────────────────────────────────
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    confirmLabel: string;
+  }>({ open: false, title: "", description: "", onConfirm: () => {}, confirmLabel: "Confirm" });
+
+  const triggerConfirm = (title: string, description: string, onConfirm: () => void, confirmLabel = "Confirm") => {
+    setConfirmState({ open: true, title, description, onConfirm, confirmLabel });
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fetch course on mount
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const load = async () => {
+      setIsLoadingCourse(true);
+      try {
+        const res = await api.get(`/courses/${courseId}`);
+        setCourse(res.data);
+        setEditCourseName(res.data.name || "");
+        setEditCourseCategoryId(res.data.categoryId || null);
+        setEditCourseDescription(res.data.description || "");
+      } catch {
+        toast.error("Failed to load course.");
+      } finally {
+        setIsLoadingCourse(false);
+      }
+    };
+    load();
+  }, [courseId]);
+
+  // Fetch categories for admin edit form
+  useEffect(() => {
+    if (!isAdminOrEmployee) return;
+    api.get("/courses/categories").then(res => {
+      setCategoriesList(res.data || []);
+    }).catch(() => {});
+  }, [isAdminOrEmployee]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Load lessons
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadCourseLessons = useCallback(async (cId: string, autoSelectFirst = false) => {
+    setLessonsLoading(true);
+    try {
+      const res = await api.get(`/courses/${cId}/lessons`);
+      const allLessons: Lesson[] = res.data || [];
+      const activeLessons = allLessons.filter(l => !l.deletedAt);
+      setCourseLessons(activeLessons);
+
+      if (!isAdminOrEmployee && userId) {
+        try {
+          const progressRes = await api.get(`/courses/${cId}/progress/${userId}`);
+          const data = progressRes.data;
+          const progressValue = typeof data === "number" ? data : (data?.progress ?? 0);
+          setLearnerProgress(progressValue);
+          setCompletedLessons(data?.completedLessons || []);
+        } catch {}
+      }
+
+      if (autoSelectFirst && activeLessons.length > 0) {
+        setSelectedLesson(activeLessons[0]);
+      }
+      return activeLessons;
+    } catch {
+      return [];
+    } finally {
+      setLessonsLoading(false);
+    }
+  }, [isAdminOrEmployee, userId]);
+
+  useEffect(() => {
+    if (courseId) {
+      loadCourseLessons(courseId, true);
+    }
+  }, [courseId, loadCourseLessons]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Standalone exams
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!courseId) return;
+    setStandaloneExamsLoading(true);
+    api.get(`/tests/standalone/${courseId}`)
+      .then(res => setStandaloneExams(res.data || []))
+      .catch(() => setStandaloneExams([]))
+      .finally(() => setStandaloneExamsLoading(false));
+    setSelectedStandaloneExam(null);
+  }, [courseId]);
+
+  useEffect(() => {
+    if (selectedStandaloneExam && standalonePlayerRef.current) {
+      standalonePlayerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedStandaloneExam]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Has tests check
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedLesson) { setHasTests(false); return; }
+    api.get(`/tests/lesson/${selectedLesson.id}`)
+      .then(res => setHasTests(res.data && res.data.length > 0))
+      .catch(() => setHasTests(false));
+  }, [selectedLesson]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reset tab toggles when tab changes
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => { setShowCourseSettingsEdit(false); }, [courseDetailsTab]);
+  useEffect(() => { setShowAddTestForm(false); }, [courseDetailsTab]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Student marks
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadStudentMarks = useCallback(async () => {
+    const lesson = marksLesson || selectedLesson;
+    if (!lesson) return;
+    setIsMarksLoading(true);
+    try {
+      const res = await api.get(`/tests/lesson/${lesson.id}/submissions`);
+      const payload = res.data || {};
+      const submissions = Array.isArray(payload.submissions) ? payload.submissions : [];
+      const remaining = typeof payload.remaining === "number" ? payload.remaining : 0;
+      setStudentMarks(submissions);
+      setRemainingSubmissions(remaining);
+    } catch {
+      setStudentMarks([]);
+    } finally {
+      setIsMarksLoading(false);
+    }
+  }, [marksLesson, selectedLesson]);
+
+  useEffect(() => {
+    if (courseDetailsTab === "student-marks") {
+      loadStudentMarks();
+    }
+  }, [courseDetailsTab, loadStudentMarks, marksLesson]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Admin leaderboard
+  // ─────────────────────────────────────────────────────────────────────────
+  const fetchAdminLeaderboard = useCallback(async (lessonId: string) => {
+    if (!lessonId) return;
+    setIsAdminLeaderboardLoading(true);
+    try {
+      const res = await api.get(`/tests/leaderboard/${lessonId}`);
+      setAdminLeaderboardData(res.data || []);
+    } catch {
+      setAdminLeaderboardData([]);
+    } finally {
+      setIsAdminLeaderboardLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (adminLeaderboardLessonId) fetchAdminLeaderboard(adminLeaderboardLessonId);
+  }, [adminLeaderboardLessonId, fetchAdminLeaderboard]);
+
+  useEffect(() => {
+    if (courseLessons.length > 0 && !adminLeaderboardLessonId) {
+      setAdminLeaderboardLessonId(String(courseLessons[0].id));
+    }
+  }, [courseLessons, adminLeaderboardLessonId]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Edit lesson form sync
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (editingLesson) {
+      setEditLessonTitle(editingLesson.title);
+      setEditLessonDescription(editingLesson.description || "");
+      setEditLessonLink(editingLesson.materialLink);
+      setEditLessonType(editingLesson.materialType as any);
+      setEditLessonInputMode("link");
+      setEditLessonError("");
+    }
+  }, [editingLesson]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+  const toggleFullScreen = () => {
+    if (playerRef.current) {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else playerRef.current.requestFullscreen().catch(console.error);
+    }
+  };
+
+  const triggerNextLesson = (next: Lesson) => {
+    setIsNextLessonTransition(true);
+    setShowTestPlayer(false);
+    setSelectedLesson(next);
+    setTimeout(() => setIsNextLessonTransition(false), 600);
+  };
+
+  const handleCompleteLesson = (cId: string, lessonId: string) => {
+    triggerConfirm(
+      "Mark Lesson Completed",
+      "Confirm that you have reviewed the study slides and completed this lesson tutorial.",
+      async () => {
+        try {
+          await completeLesson(cId, lessonId);
+          toast.success("Lesson completed!");
+          const freshLessons = await loadCourseLessons(cId);
+          const freshLesson = freshLessons.find((l: Lesson) => l.lessonId === lessonId || String(l.id) === lessonId);
+          if (freshLesson) setSelectedLesson(freshLesson);
+        } catch (err: any) {
+          toast.error(err.message || "Failed to complete lesson.");
+        }
+      },
+      "Mark Complete"
+    );
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fileNameWithoutExt = file.name.substring(0, file.name.lastIndexOf(".")) || file.name;
+    if (!newLessonTitle.trim()) setNewLessonTitle(fileNameWithoutExt);
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    let type = "PDF";
+    if (["mp4", "mov", "avi", "webm", "ogg"].includes(ext || "")) type = "Video";
+    else if (["ppt", "pptx"].includes(ext || "")) type = "PPT";
+    else if (["doc", "docx"].includes(ext || "")) type = "DOCX";
+    else if (ext === "pdf") type = "PDF";
+    setNewLessonType(type);
+    setIsUploadingFile(true);
+    setLessonFormError("");
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await api.post("/courses/upload", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      if (res.data?.url) {
+        setNewLessonLink(res.data.url);
+        setLessonFormSuccess("File uploaded and linked successfully!");
+        setTimeout(() => setLessonFormSuccess(p => p === "File uploaded and linked successfully!" ? "" : p), 10000);
+      }
+    } catch (err: any) {
+      setLessonFormError(err.response?.data?.message || "File upload failed.");
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
+  const handleAddLesson = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLessonFormError("");
+    setLessonFormSuccess("");
+    if (!course) { setLessonFormError("Course not loaded."); return; }
+    if (!newLessonTitle.trim() || !newLessonLink.trim()) { setLessonFormError("Lesson title and material link are required."); return; }
+    triggerConfirm(
+      "Deploy New Lesson",
+      `Are you sure you want to publish the lesson "${newLessonTitle}" under ${course.name}?`,
+      async () => {
+        setIsDeployingLesson(true);
+        try {
+          const typeToSubmit = lessonInputMode === "link" ? detectMaterialType(newLessonLink) : newLessonType as any;
+          await addLesson(course.courseId, { title: newLessonTitle, description: newLessonDescription, materialType: typeToSubmit, materialLink: newLessonLink, status: "Active" });
+          setLessonFormSuccess("Lesson added successfully!");
+          setTimeout(() => setLessonFormSuccess(p => p === "Lesson added successfully!" ? "" : p), 10000);
+          setNewLessonTitle(""); setNewLessonDescription(""); setNewLessonLink("");
+          await loadCourseLessons(course.courseId);
+          fetchCourses();
+        } catch (err: any) {
+          setLessonFormError(err.message);
+        } finally {
+          setIsDeployingLesson(false);
+        }
+      },
+      "Deploy Lesson"
+    );
+  };
+
+  const handleEditCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!course) return;
+    setEditCourseFormError(""); setEditCourseFormSuccess(""); setIsUpdatingCourse(true);
+    try {
+      let thumbnailUrl = undefined;
+      if (editCourseThumbnail) {
+        const formData = new FormData();
+        formData.append("file", editCourseThumbnail);
+        const uploadRes = await api.post("/courses/upload-thumbnail", formData, { headers: { "Content-Type": "multipart/form-data" } });
+        thumbnailUrl = uploadRes.data.url;
+      }
+      const updated = await updateCourse(course.courseId, { name: editCourseName, categoryId: editCourseCategoryId || undefined, description: editCourseDescription, ...(thumbnailUrl && { thumbnailUrl }) });
+      setCourse(updated);
+      toast.success("Course updated successfully!");
+      setEditCourseFormSuccess("Course updated successfully!");
+      setEditCourseThumbnail(null);
+      setTimeout(() => setEditCourseFormSuccess(""), 10000);
+      fetchCourses();
+    } catch (err: any) {
+      setEditCourseFormError(err.message || "Failed to update course.");
+    } finally {
+      setIsUpdatingCourse(false);
+    }
+  };
+
+  const handleEditLessonFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingEditFile(true); setEditLessonError("");
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await api.post("/courses/upload", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      if (res.data?.url) {
+        setEditLessonLink(res.data.url);
+        setEditLessonType(detectMaterialType(res.data.url) as any);
+      }
+    } catch (err: any) {
+      setEditLessonError(err.response?.data?.message || "File upload failed.");
+    } finally {
+      setIsUploadingEditFile(false);
+    }
+  };
+
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLesson || !course) return;
+    setIsUpdatingLesson(true); setEditLessonError("");
+    try {
+      const typeToSubmit = editLessonInputMode === "link" ? detectMaterialType(editLessonLink) : editLessonType;
+      await updateLesson(course.courseId, editingLesson.lessonId, { title: editLessonTitle, description: editLessonDescription, materialType: typeToSubmit, materialLink: editLessonLink });
+      await loadCourseLessons(course.courseId);
+      if (selectedLesson?.lessonId === editingLesson.lessonId) {
+        setSelectedLesson(prev => prev ? { ...prev, title: editLessonTitle, description: editLessonDescription, materialLink: editLessonLink, materialType: typeToSubmit } : null);
+      }
+      setEditingLesson(null);
+      toast.success("Lesson updated!");
+    } catch (err: any) {
+      setEditLessonError(err.message || "Failed to update lesson.");
+    } finally {
+      setIsUpdatingLesson(false);
+    }
+  };
+
+  const handleUpdateCourseStatus = (cId: string, status: string) => {
+    const title = status === "active" ? "Set Course to Active" : "Set Course to Inactive";
+    const description = status === "active"
+      ? "Confirming change to ACTIVE status. This course will become visible in the catalog."
+      : "Warning: Setting to Inactive will hide this course from the catalog. Active enrollments will be locked.";
+    triggerConfirm(title, description, async () => {
+      try {
+        await api.patch(`/courses/${cId}/status`, { status });
+        toast.success(`Course status updated to ${status.toUpperCase()}.`);
+        const res = await api.get(`/courses/${cId}`);
+        setCourse(res.data);
+        fetchCourses();
+      } catch (err: any) {
+        toast.error(err.message || "Failed to update course status.");
+      }
+    }, status === "active" ? "Set Active" : "Set Inactive");
+  };
+
+  const confirmSoftDeleteCourse = (cId: string) => {
+    triggerConfirm("Move Course to Recycle Bin", "Are you sure you want to delete this course? It will be moved to the recycle bin.", async () => {
+      try {
+        await softDeleteCourse(cId);
+        toast.success("Course moved to Recycle Bin.");
+        fetchCourses();
+        router.push(backUrl);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to delete course.");
+      }
+    }, "Move to Trash");
+  };
+
+  const confirmSoftDeleteLesson = (cId: string, lessonId: string) => {
+    triggerConfirm("Move Lesson to Recycle Bin", "Are you sure you want to delete this lesson?", async () => {
+      try {
+        await softDeleteLesson(cId, lessonId);
+        toast.success("Lesson moved to Recycle Bin.");
+        if (selectedLesson?.lessonId === lessonId || String(selectedLesson?.id) === String(lessonId)) {
+          setSelectedLesson(null);
+        }
+        await loadCourseLessons(cId);
+        fetchCourses();
+      } catch (err: any) {
+        toast.error(err.message || "Failed to delete lesson.");
+      }
+    }, "Move to Trash");
+  };
+
+  const handleViewSubmissionDetails = async (submissionId: number) => {
+    setIsReviewLoading(submissionId);
+    try {
+      const res = await api.get(`/tests/submissions/${submissionId}`);
+      setReviewStudentSubmission(res.data);
+    } catch {
+      toast.error("Failed to load submission details.");
+    } finally {
+      setIsReviewLoading(null);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    const name = prompt("Enter category name:");
+    if (!name?.trim()) return;
+    try {
+      await api.post("/courses/categories", { name: name.trim() });
+      const res = await api.get("/courses/categories");
+      setCategoriesList(res.data || []);
+      toast.success("Category added!");
+    } catch {
+      toast.error("Failed to add category.");
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Derived helpers
+  // ─────────────────────────────────────────────────────────────────────────
+  const isCompleted = (l: Lesson) => {
+    if (!l) return false;
+    return completedLessons.includes(l.lessonId) || completedLessons.includes(String(l.id)) || (completedLessons as any).includes(l.id);
+  };
+
+  const currentIdx = selectedLesson
+    ? courseLessons.findIndex(l => l.lessonId === selectedLesson.lessonId || String(l.id) === String(selectedLesson.id))
+    : -1;
+  const nextLesson = currentIdx !== -1 && currentIdx < courseLessons.length - 1 ? courseLessons[currentIdx + 1] : null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Loading state
+  // ─────────────────────────────────────────────────────────────────────────
+  if (isLoadingCourse) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="relative flex items-center justify-center">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+          <Sparkles className="absolute h-5 w-5 text-blue-500 animate-pulse" />
+        </div>
+        <p className="text-sm font-medium text-slate-500 dark:text-zinc-400 animate-pulse">Loading course...</p>
+      </div>
+    );
+  }
+
+  if (!course) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <p className="text-sm font-medium text-red-500">Course not found.</p>
+        <button onClick={() => router.push(backUrl)} className="text-sm text-blue-600 underline">Go back</button>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <>
+      <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
+        {/* Navigation & Title block */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-zinc-800 pb-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push(backUrl)}
+              className="flex items-center justify-center h-9 w-9 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider dark:text-blue-400">{course.courseId}</span>
+                <span className="h-1 w-1 rounded-full bg-slate-300 dark:bg-zinc-700" />
+                <span className="text-xs text-slate-400">{courseLessons.length} Lesson{courseLessons.length !== 1 ? "s" : ""}</span>
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-zinc-50">{course.name}</h2>
+            </div>
+          </div>
+
+          {!isAdminOrEmployee && (
+            <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+              <span className="text-xs text-slate-400 font-medium">Your Progress</span>
+              <div className="w-24 h-2 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-full bg-green-500 transition-all" style={{ width: `${learnerProgress}%` }} />
+              </div>
+              <span className="text-xs font-bold text-green-600 dark:text-green-400">{learnerProgress}%</span>
+            </div>
+          )}
+        </div>
+
+        {/* Dynamic Split Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+
+          {/* MIDDLE COLUMN - Content Player & Sub-actions (70% width on Desktop) */}
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            {isNextLessonTransition ? (
+              <div className="flex flex-col items-center justify-center py-40 gap-4 bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm animate-fadeIn">
+                <div className="relative flex items-center justify-center">
+                  <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+                  <Sparkles className="absolute h-5 w-5 text-blue-500 animate-pulse" />
+                </div>
+                <p className="text-sm font-medium text-slate-500 dark:text-zinc-400 animate-pulse">Loading next lesson...</p>
+              </div>
+            ) : (
+              <>
+                {/* Player Container */}
+                <div ref={playerRef} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-md dark:border-zinc-800 aspect-video flex flex-col items-center justify-center text-center">
+                  {selectedLesson ? (
+                    <div className="w-full h-full relative">
+                      {selectedLesson.materialType === "Video" ? (
+                        selectedLesson.materialLink.includes("youtube.com") || selectedLesson.materialLink.includes("youtu.be") ? (
+                          <iframe src={getEmbedLink(selectedLesson.materialLink)} className="w-full h-full border-0" allowFullScreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title={selectedLesson.title} />
+                        ) : (
+                          <video src={selectedLesson.materialLink.startsWith("/") ? `${apiBase}${selectedLesson.materialLink}` : selectedLesson.materialLink} className="w-full h-full bg-black object-contain" controls />
+                        )
+                      ) : selectedLesson.materialType === "PPT" ? (() => {
+                        const absoluteLink = selectedLesson.materialLink.startsWith("/") ? `${apiBase}${selectedLesson.materialLink}` : selectedLesson.materialLink;
+                        return <iframe src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteLink)}&embedded=true`} className="w-full h-full border-0 bg-white" title={selectedLesson.title} />;
+                      })() : selectedLesson.materialType === "DOCX" ? (
+                        <DocxViewer url={selectedLesson.materialLink.startsWith("/") ? `${apiBase}${selectedLesson.materialLink}` : selectedLesson.materialLink} />
+                      ) : (
+                        <iframe src={selectedLesson.materialLink.startsWith("/") ? `${apiBase}${selectedLesson.materialLink}` : selectedLesson.materialLink} className="w-full h-full border-0 bg-white" title={selectedLesson.title} />
+                      )}
+
+                      {/* Absolute Player Controls Overlay */}
+                      <div className="absolute top-4 right-4 z-10 flex gap-2">
+                        <a href={selectedLesson.materialLink} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-xl bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm px-3.5 py-2 text-xs font-semibold transition">
+                          Open Link <ExternalLink size={12} />
+                        </a>
+                      </div>
+                      <button onClick={toggleFullScreen} className="absolute bottom-4 right-4 z-20 flex h-8 w-8 items-center justify-center rounded-lg bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm transition" title="Toggle Fullscreen">
+                        <Maximize2 size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 p-8">
+                      <MonitorPlay size={54} className="text-zinc-700 animate-bounce" />
+                      <h3 className="text-lg font-bold text-white">Select a Lesson to Start</h3>
+                      <p className="text-xs text-zinc-500 max-w-sm">Choose from the course outline playlist in the sidebar to review teaching slides or start stream playback.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Lesson Detail Bar & Action Panel */}
+                {selectedLesson && (
+                  <div className="flex flex-col gap-4 bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 shadow-sm animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-500">Lesson Info</span>
+                      <div className="flex items-center gap-2">
+                        {!isAdminOrEmployee && (
+                          <button type="button" onClick={() => setViewCourseModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:text-blue-400 dark:bg-blue-950/30 dark:border-blue-900/40 dark:hover:bg-blue-900/40 text-xs font-semibold transition" title="View Course Info">
+                            <Eye size={12} /> Course Info
+                          </button>
+                        )}
+                        {isAdminOrEmployee && (
+                          <button type="button" onClick={() => setEditingLesson(selectedLesson)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold transition dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                            <Pencil size={12} /> Edit Lesson
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-400 px-2.5 py-1 rounded-md">Playing: {selectedLesson.materialType}</span>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50 mt-2">{selectedLesson.title}</h3>
+                        {selectedLesson.description && <p className="mt-2 text-xs text-slate-500 dark:text-zinc-400 leading-relaxed max-w-2xl">{selectedLesson.description}</p>}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        {isCompleted(selectedLesson) ? (
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-xl dark:bg-green-950/20 dark:text-green-400">
+                              <CheckCircle size={14} /> Completed
+                            </span>
+                            {!isAdminOrEmployee && nextLesson && (
+                              <button onClick={() => triggerNextLesson(nextLesson)} className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition flex items-center gap-1 shadow-sm">
+                                Next Lesson →
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-3">
+                            {!isAdminOrEmployee && !hasTests && (
+                              <button onClick={() => handleCompleteLesson(course.courseId, selectedLesson.lessonId)} className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition">
+                                Mark Complete
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Test Player for Learners */}
+                {!isAdminOrEmployee && selectedLesson && hasTests && (
+                  <div className="mt-6 animate-fadeIn">
+                    <TestPlayer
+                      lessonId={selectedLesson.id}
+                      isAdmin={false}
+                      hasNextLesson={!!nextLesson}
+                      onNextLesson={() => { if (nextLesson) triggerNextLesson(nextLesson); }}
+                      onSuccess={async () => {
+                        const freshLessons = await loadCourseLessons(course.courseId);
+                        // reload progress
+                        try {
+                          const progressRes = await api.get(`/courses/${course.courseId}/progress/${userId}`);
+                          const data = progressRes.data;
+                          setLearnerProgress(typeof data === "number" ? data : (data?.progress ?? 0));
+                          setCompletedLessons(data?.completedLessons || []);
+                        } catch {}
+                      }}
+                      onCancel={() => setShowTestPlayer(false)}
+                    />
+                  </div>
+                )}
+
+                {/* Standalone Exam Player */}
+                {selectedStandaloneExam && (
+                  <div className="mt-6 animate-fadeIn" ref={standalonePlayerRef}>
+                    <TestPlayer
+                      externalTest={selectedStandaloneExam}
+                      isAdmin={isAdminOrEmployee}
+                      onSuccess={async () => {
+                        await loadCourseLessons(course.courseId);
+                        setSelectedStandaloneExam(null);
+                      }}
+                      onCancel={() => setSelectedStandaloneExam(null)}
+                    />
+                  </div>
+                )}
+
+                {/* Admin / Employee Management Area Tabs */}
+                {isAdminOrEmployee && (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex border-b border-slate-200 dark:border-zinc-800 overflow-x-auto">
+                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard"] as const).map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setCourseDetailsTab(tab)}
+                          className={`pb-3 text-sm font-semibold px-4 whitespace-nowrap transition ${courseDetailsTab === tab ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+                        >
+                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : "Leaderboard"}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="p-1">
+                      {/* Course Info Tab */}
+                      {courseDetailsTab === "player" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col gap-6 animate-fadeIn">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <h4 className="font-bold text-slate-900 dark:text-zinc-50">Course Info & Metrics</h4>
+                              <p className="text-xs text-slate-500">Summary stats and general information for this course.</p>
+                            </div>
+                            <button type="button" onClick={() => setShowCourseSettingsEdit(!showCourseSettingsEdit)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold transition dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                              <Settings size={14} /> {showCourseSettingsEdit ? "Close Settings" : "Edit Course Settings"}
+                            </button>
+                          </div>
+
+                          {showCourseSettingsEdit ? (
+                            <div className="flex flex-col gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/50 dark:border-zinc-800 dark:bg-zinc-900/30 animate-fadeIn">
+                              <h5 className="text-xs font-bold text-slate-900 dark:text-zinc-100">Edit Settings</h5>
+                              {editCourseFormError && <div className="p-3 text-xs bg-red-50 text-red-605 text-red-600 rounded-xl border border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30">{editCourseFormError}</div>}
+                              {editCourseFormSuccess && <div className="p-3 text-xs bg-green-50 text-green-600 rounded-xl border border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/30">{editCourseFormSuccess}</div>}
+                              <form onSubmit={handleEditCourse} className="flex flex-col gap-4">
+                                <div className="flex flex-col gap-1"><label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Name</label><input type="text" value={editCourseName} onChange={e => setEditCourseName(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900" required /></div>
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between"><label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Category</label><button type="button" onClick={handleAddCategory} className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">+ New Category</button></div>
+                                  <select value={editCourseCategoryId || ""} onChange={e => setEditCourseCategoryId(Number(e.target.value))} className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+                                    <option value="">Select Category</option>
+                                    {categoriesList.map(cat => <option key={cat.categoryId} value={cat.categoryId}>{cat.categoryName}</option>)}
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-1"><label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Thumbnail</label><input type="file" accept="image/*" onChange={e => { if (e.target.files?.[0]) setEditCourseThumbnail(e.target.files[0]); }} className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900" /></div>
+                                <div className="flex flex-col gap-1"><label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Course Description</label><textarea value={editCourseDescription} onChange={e => setEditCourseDescription(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 min-h-[80px]" placeholder="Enter course description here..." /></div>
+                                <button type="submit" disabled={isUpdatingCourse} className="self-start rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 transition disabled:opacity-50">{isUpdatingCourse ? "Saving..." : "Save Changes"}</button>
+                              </form>
+                              <div className="h-px bg-slate-200 dark:bg-zinc-800 w-full my-2" />
+                              <div className="flex flex-col gap-3">
+                                <span className="text-xs font-bold text-slate-500 dark:text-zinc-400">Visibility & Status:</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {course.status === "active" ? (
+                                    <button type="button" onClick={() => handleUpdateCourseStatus(course.courseId, "inactive")} className="rounded-xl px-4 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white transition shadow-sm">Set Inactive</button>
+                                  ) : (
+                                    <button type="button" onClick={() => handleUpdateCourseStatus(course.courseId, "active")} className="rounded-xl px-4 py-2 text-xs font-bold bg-green-600 hover:bg-green-700 text-white transition shadow-sm">Set Active</button>
+                                  )}
+                                  <button type="button" onClick={() => confirmSoftDeleteCourse(course.courseId)} className="rounded-xl px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-sm ml-auto">Delete Course</button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-6">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-zinc-800/60">
+                                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block mb-1">Total Enrolled Learners</span>
+                                  <span className="text-xl font-bold text-slate-900 dark:text-zinc-100">{course.enrolled}</span>
+                                </div>
+                                <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-zinc-800/60">
+                                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block mb-1">Lesson Chapters Count</span>
+                                  <span className="text-xl font-bold text-slate-900 dark:text-zinc-100">{courseLessons.length}</span>
+                                </div>
+                              </div>
+                              <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/20 dark:border-zinc-800 dark:bg-zinc-900/10">
+                                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Course Description</h5>
+                                {course.description ? (
+                                  <p className="text-xs text-slate-650 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">{course.description}</p>
+                                ) : (
+                                  <p className="text-xs text-slate-400 italic">No description provided for this course yet.</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* All Tests Tab */}
+                      {courseDetailsTab === "all-tests" && (
+                        <div className="flex flex-col gap-6">
+                          <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                            <div><h4 className="font-bold text-slate-900 dark:text-zinc-50 text-sm">All Tests</h4><p className="text-xs text-slate-500 dark:text-zinc-400">Manage lesson tests and standalone exams for this course.</p></div>
+                            <button type="button" onClick={() => setShowAddTestForm(!showAddTestForm)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm">
+                              <span>{showAddTestForm ? "✕ Cancel" : "+ Add Test"}</span>
+                            </button>
+                          </div>
+                          {showAddTestForm && (
+                            <div className="animate-fadeIn">
+                              <TestBuilder
+                                courseId={course.id}
+                                lessons={courseLessons}
+                                initialLessonId={selectedLesson?.id}
+                                onSuccess={async (createdForLessonId?: number) => {
+                                  setShowAddTestForm(false);
+                                  const freshLessons = await loadCourseLessons(course.courseId);
+                                  if (createdForLessonId && freshLessons?.length) {
+                                    const targetLesson = freshLessons.find((l: any) => l.id === createdForLessonId);
+                                    if (targetLesson) { setSelectedLesson(targetLesson); setShowTestPlayer(true); }
+                                  } else if (selectedLesson) {
+                                    try { const res = await api.get(`/tests/lesson/${selectedLesson.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
+                                  }
+                                  try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
+                                }}
+                              />
+                            </div>
+                          )}
+                          {selectedLesson && !showAddTestForm && (
+                            <TestPlayer
+                              lessonId={selectedLesson.id}
+                              isAdmin={true}
+                              hasNextLesson={!!nextLesson}
+                              onNextLesson={() => { if (nextLesson) triggerNextLesson(nextLesson); }}
+                              onSuccess={async () => { await loadCourseLessons(course.courseId); }}
+                              onCancel={() => setShowTestPlayer(false)}
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {/* Add Lesson Tab */}
+                      {courseDetailsTab === "add-lesson" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-3">Add Lesson</h4>
+                          {lessonFormError && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{lessonFormError}</div>}
+                          {lessonFormSuccess && <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{lessonFormSuccess}</div>}
+                          <form onSubmit={handleAddLesson} className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-1.5"><label className="text-xs font-semibold text-slate-500">Lesson Title</label><input type="text" value={newLessonTitle || ""} onChange={e => setNewLessonTitle(e.target.value)} placeholder="e.g. Introduction to App Router" className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800" /></div>
+                            <div className="flex flex-col gap-1.5"><label className="text-xs font-semibold text-slate-500">Lesson Description</label><textarea value={newLessonDescription || ""} onChange={e => setNewLessonDescription(e.target.value)} placeholder="Write a brief overview of this lesson chapter..." className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 w-full min-h-[70px]" /></div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">Material Source</label>
+                              <div className="flex bg-slate-105 p-1 rounded-xl w-fit border border-slate-200 dark:border-zinc-800">
+                                <button type="button" onClick={() => setLessonInputMode("link")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${lessonInputMode === "link" ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400"}`}>Direct Link</button>
+                                <button type="button" onClick={() => setLessonInputMode("upload")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${lessonInputMode === "upload" ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400"}`}>Documents</button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                              {lessonInputMode === "link" ? (
+                                <div className="flex flex-col gap-1.5 w-full"><label className="text-xs font-semibold text-slate-500">Material Link</label><input key="lesson-link-input" type="text" value={newLessonLink || ""} onChange={e => setNewLessonLink(e.target.value)} placeholder="https://example.com/materials/..." className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 w-full" /></div>
+                              ) : (
+                                <div className="flex flex-col gap-1.5 w-full">
+                                  <label className="text-xs font-semibold text-slate-500">Upload File (VDO/PDF/PPT/DOCX)</label>
+                                  <input key="lesson-file-input" type="file" accept="video/*,.pdf,.ppt,.pptx,.doc,.docx" onChange={handleFileUpload} className="text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-zinc-800 dark:file:text-zinc-200 cursor-pointer w-full" />
+                                  {isUploadingFile && <span className="text-[10px] text-blue-500 animate-pulse mt-1">Uploading file to server...</span>}
+                                  {newLessonLink && !isUploadingFile && <span className="text-[10px] text-green-600 truncate mt-1">Uploaded path: {newLessonLink}</span>}
+                                </div>
+                              )}
+                            </div>
+                            <button type="submit" disabled={isDeployingLesson} className="flex justify-center items-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 w-full">
+                              {isDeployingLesson ? <><div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Deploying Lesson...</> : "Add Lesson"}
+                            </button>
+                          </form>
+                          {isDeployingLesson && (
+                            <div className="mt-4 p-4 rounded-xl border border-blue-100 bg-blue-50/20 dark:border-blue-900/20 dark:bg-blue-950/10 flex items-center gap-3 animate-pulse">
+                              <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent shrink-0" />
+                              <div className="min-w-0"><p className="text-xs font-bold text-slate-900 dark:text-zinc-50">Syncing with databases...</p><p className="text-[10px] text-slate-400">Allocating assets and custom LES ID codes.</p></div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Leaderboard Tab */}
+                      {courseDetailsTab === "leaderboard" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col gap-6 animate-fadeIn">
+                          <div><h4 className="font-bold text-slate-900 dark:text-zinc-50 mb-1 flex items-center gap-2"><Trophy size={18} className="text-amber-500" /> Lesson Leaderboard</h4><p className="text-xs text-slate-500 dark:text-zinc-400">View Top 5 student scores and completions for the selected lesson.</p></div>
+                          <div className="flex flex-col gap-1.5 w-full max-w-xs">
+                            <label className="text-xs font-semibold text-slate-500">Select Lesson</label>
+                            <select value={adminLeaderboardLessonId} onChange={e => setAdminLeaderboardLessonId(e.target.value)} className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 focus:outline-none">
+                              <option value="">Select a lesson...</option>
+                              {courseLessons.map(l => <option key={l.id} value={String(l.id)}>{l.lessonId} - {l.title}</option>)}
+                            </select>
+                          </div>
+                          {isAdminLeaderboardLoading ? (
+                            <div className="flex flex-col items-center justify-center py-12 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-455 font-medium">Fetching ranks...</span></div>
+                          ) : adminLeaderboardData.length === 0 ? (
+                            <p className="text-xs text-slate-500 py-4 bg-slate-50 dark:bg-zinc-800/40 rounded-xl px-4 text-center">No participants yet for this lesson&apos;s test.</p>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              {adminLeaderboardData.map((lb, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-zinc-800">
+                                  <div className="flex items-center gap-3">
+                                    <span className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? "bg-amber-100 text-amber-700 animate-pulse" : idx === 1 ? "bg-slate-200 text-slate-700" : idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>#{idx + 1}</span>
+                                    <span className="font-semibold text-slate-800 dark:text-zinc-200 text-xs">{lb.name}</span>
+                                  </div>
+                                  <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs">{lb.marksObtained} pts</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Student Marks Tab */}
+                      {courseDetailsTab === "student-marks" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-bold text-slate-900 dark:text-zinc-50">Student Marks - {selectedLesson?.title || "No Lesson Selected"}</h4>
+                            <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full">
+                              {remainingSubmissions > 0 ? `${remainingSubmissions} submission${remainingSubmissions !== 1 ? "s" : ""} remaining` : "All submissions evaluated"}
+                            </span>
+                          </div>
+                          <div className="mb-4">
+                            <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Lesson</label>
+                            <select value={marksLesson?.lessonId || selectedLesson?.lessonId || ""} onChange={e => { const val = e.target.value; if (val === "") { setMarksLesson(null); } else { const found = courseLessons.find((l: any) => String(l.lessonId) === val); setMarksLesson(found || null); } }} className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                              {courseLessons.map((l: any) => <option key={l.lessonId} value={l.lessonId}>{l.title}</option>)}
+                            </select>
+                          </div>
+                          {!selectedLesson ? (
+                            <p className="text-xs text-slate-400">Please select a lesson from the playlist to view student marks.</p>
+                          ) : isMarksLoading ? (
+                            <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading marks...</span></div>
+                          ) : studentMarks.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-4 text-center">No student test submissions found for this lesson.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left">
+                                <thead className="bg-slate-50 dark:bg-zinc-800/50">
+                                  <tr>
+                                    {["Student Name", "Email", "User ID", "Test Name", "Marks", "Actions"].map(h => <th key={h} className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{h}</th>)}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {studentMarks.map((sub: any) => (
+                                    <tr key={sub.id} className="border-b border-slate-100 dark:border-zinc-800">
+                                      <td className="py-3 px-4"><div className="text-sm font-bold text-slate-800 dark:text-zinc-100">{sub.user?.name}</div></td>
+                                      <td className="py-3 px-4 text-sm text-slate-500 dark:text-zinc-400">{sub.user?.email}</td>
+                                      <td className="py-3 px-4"><span className="px-2 py-1 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 font-mono text-xs font-semibold tracking-wide">{sub.user?.userId}</span></td>
+                                      <td className="py-3 px-4"><span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 rounded-full text-xs font-bold border border-emerald-100 dark:border-emerald-900/30 whitespace-nowrap">{sub.test?.title || "Unknown"}</span></td>
+                                      <td className="py-3 px-4 text-right"><span className="text-base font-black text-blue-600 dark:text-blue-400">{sub.marksObtained}</span></td>
+                                      <td className="py-3 px-4 text-right">
+                                        <button onClick={() => handleViewSubmissionDetails(sub.id)} disabled={isReviewLoading === sub.id} className="ml-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/30 dark:hover:bg-blue-900/50 transition border border-blue-100 dark:border-blue-900/40 disabled:opacity-50">
+                                          {isReviewLoading === sub.id ? <Loader2 size={12} className="animate-spin" /> : null} View Details
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Evaluation Tab */}
+                      {courseDetailsTab === "evaluation" && (
+                        <div>
+                          <LessonEvaluationView
+                            selectedLesson={selectedLesson ?? (courseLessons.length > 0 ? courseLessons[0] : null)}
+                            courseId={course.courseId}
+                            courseLessons={courseLessons}
+                            enrolledCount={course.enrolled}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN - Playlist (30% width) */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-zinc-800 dark:bg-[#121212] shadow-sm flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-zinc-50">Course Playlist</h3>
+              <span className="text-[10px] font-bold text-slate-400 uppercase">{courseLessons.length} Items</span>
+            </div>
+
+            <div className="flex flex-col gap-2 overflow-y-auto pr-1 select-none" style={{ maxHeight: "500px", scrollbarWidth: "thin" }}>
+              {lessonsLoading ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading playlist...</span></div>
+              ) : courseLessons.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-400">No lessons available in this course.</div>
+              ) : (
+                courseLessons.map((l, index) => {
+                  const isCur = selectedLesson?.lessonId === l.lessonId;
+                  const isComp = isCompleted(l);
+                  const isLocked = !isAdminOrEmployee && index > 0 && !isCompleted(courseLessons[index - 1]);
+                  return (
+                    <div key={l.lessonId} onClick={() => { if (!isLocked) setSelectedLesson(l); }} className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${isCur ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/40 dark:text-blue-400" : "hover:bg-slate-50 border-transparent dark:hover:bg-zinc-800/40"}`}>
+                      <div className="relative h-14 w-20 shrink-0 bg-slate-950 rounded-lg overflow-hidden flex items-center justify-center text-white border border-slate-800">
+                        {l.materialType === "Video" ? <Play size={16} className="text-blue-500 fill-blue-500/20 group-hover:scale-110 transition" /> : <FileText size={16} className="text-emerald-500" />}
+                        <span className="absolute bottom-1 right-1 bg-black/80 text-[8px] font-mono px-1 rounded text-slate-400">{l.materialType}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-900 line-clamp-2 dark:text-zinc-100" title={l.title}>{l.title}</p>
+                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">{l.lessonId}</p>
+                        <div className="flex items-center gap-1.5 mt-1.5 justify-between">
+                          {isAdminOrEmployee ? (
+                            l.tests && l.tests.length > 0 ? (
+                              <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500"><Award size={10} /> Test Added</span>
+                            ) : (
+                              <span className="text-[9px] text-slate-400">No Test</span>
+                            )
+                          ) : isComp ? (
+                            <span className="flex items-center gap-0.5 text-[9px] text-green-600 font-bold dark:text-green-400"><Check size={10} /> Completed</span>
+                          ) : (
+                            <span className="text-[9px] text-slate-400">Not Completed</span>
+                          )}
+                          {isAdminOrEmployee && (
+                            <div className="flex items-center gap-1">
+                              <button onClick={e => { e.stopPropagation(); setEditingLesson(l); }} className="p-1 text-slate-450 hover:text-blue-600 transition rounded hover:bg-blue-50 dark:hover:bg-blue-950/20" title="Edit lesson details"><Pencil size={12} /></button>
+                              <button onClick={e => { e.stopPropagation(); confirmSoftDeleteLesson(course.courseId, l.lessonId); }} className="p-1 text-slate-400 hover:text-rose-600 transition rounded hover:bg-rose-50 dark:hover:bg-rose-950/20" title="Move lesson to Recycle Bin"><Trash2 size={12} /></button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Standalone Exams Section */}
+            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-bold text-sm text-slate-900 dark:text-zinc-50">Standalone Exams</h4>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">{standaloneExams.length} Items</span>
+              </div>
+              {standaloneExamsLoading ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading exams...</span></div>
+              ) : standaloneExams.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-400">No standalone exams for this course.</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {standaloneExams.map((exam: any) => {
+                    const isSelected = selectedStandaloneExam?.id === exam.id;
+                    return (
+                      <div key={exam.id} onClick={() => setSelectedStandaloneExam(exam)} className={`group flex items-start gap-3 rounded-xl p-2.5 text-left transition border cursor-pointer ${isSelected ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/40 dark:text-blue-400" : "hover:bg-slate-50 border-transparent dark:hover:bg-zinc-800/40"}`}>
+                        <div className="relative h-14 w-20 shrink-0 bg-slate-950 rounded-lg overflow-hidden flex items-center justify-center text-white border border-slate-800">
+                          <Clock size={16} className="text-blue-500 fill-blue-500/20 group-hover:scale-110 transition" />
+                          <span className="absolute bottom-1 right-1 bg-black/80 text-[8px] font-mono px-1 rounded text-slate-400">Exam</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-900 line-clamp-2 dark:text-zinc-100" title={exam.title}>{exam.title}</p>
+                          <p className="text-[9px] text-slate-400 font-mono mt-0.5">{exam.questions?.length || 0} questions</p>
+                          <div className="flex items-center gap-1.5 mt-1.5"><span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500"><Award size={10} /> Timed Exam</span></div>
+                          {(exam.startTime || exam.endTime) && (
+                            <div className="flex flex-col gap-0.5 mt-1 text-[9px] text-slate-500 font-medium">
+                              {exam.startTime && <span>Starts: {new Date(exam.startTime).toLocaleString()}</span>}
+                              {exam.endTime && <span>Ends: {new Date(exam.endTime).toLocaleString()}</span>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Lessons Loading Overlay */}
+      {lessonsLoading && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="flex flex-col items-center gap-4 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-8 rounded-3xl shadow-2xl animate-scaleIn">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-400" />
+            <p className="text-sm font-bold text-slate-800 dark:text-zinc-200">Loading course syllabus...</p>
+            <p className="text-xs text-slate-400">Preparing lessons & materials</p>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Lesson Modal */}
+      {editingLesson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50">Edit Lesson</h3>
+              <button onClick={() => setEditingLesson(null)} className="rounded-lg p-1 text-slate-450 hover:bg-slate-50 dark:hover:bg-zinc-800"><X size={16} /></button>
+            </div>
+            {editLessonError && <div className="mb-3 p-3 text-xs bg-red-50 text-red-600 rounded-xl dark:bg-red-950/20 dark:text-red-400">{editLessonError}</div>}
+            <form onSubmit={handleEditLessonSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5"><label className="text-xs font-semibold text-slate-500">Lesson Title</label><input type="text" value={editLessonTitle} onChange={e => setEditLessonTitle(e.target.value)} required className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800" /></div>
+              <div className="flex flex-col gap-1.5"><label className="text-xs font-semibold text-slate-500">Description</label><textarea value={editLessonDescription} onChange={e => setEditLessonDescription(e.target.value)} className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800 min-h-[60px]" /></div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-500">Material Source</label>
+                <div className="flex bg-slate-50 p-1 rounded-xl w-fit border border-slate-200 dark:border-zinc-800">
+                  <button type="button" onClick={() => setEditLessonInputMode("link")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${editLessonInputMode === "link" ? "bg-white shadow-sm dark:bg-zinc-700" : "text-slate-500"}`}>Link</button>
+                  <button type="button" onClick={() => setEditLessonInputMode("file")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition ${editLessonInputMode === "file" ? "bg-white shadow-sm dark:bg-zinc-700" : "text-slate-500"}`}>Upload</button>
+                </div>
+              </div>
+              {editLessonInputMode === "link" ? (
+                <div className="flex flex-col gap-1.5"><label className="text-xs font-semibold text-slate-500">Material Link</label><input type="text" value={editLessonLink} onChange={e => setEditLessonLink(e.target.value)} className="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-800" /></div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-500">Upload File</label>
+                  <input type="file" accept="video/*,.pdf,.ppt,.pptx,.doc,.docx" onChange={handleEditLessonFileUpload} className="text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                  {isUploadingEditFile && <span className="text-[10px] text-blue-500 animate-pulse">Uploading...</span>}
+                  {editLessonLink && !isUploadingEditFile && <span className="text-[10px] text-green-600 truncate">Linked: {editLessonLink}</span>}
+                </div>
+              )}
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                <button type="button" onClick={() => setEditingLesson(null)} className="rounded-xl border border-slate-200 bg-transparent px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+                <button type="submit" disabled={isUpdatingLesson} className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{isUpdatingLesson ? "Saving..." : "Save Changes"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Learner: Course Info Modal */}
+      {viewCourseModalOpen && !isAdminOrEmployee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" onClick={() => setViewCourseModalOpen(false)}>
+          <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+              <h3 className="pl-4 text-base font-bold text-slate-900 dark:text-zinc-50">Course Info</h3>
+              <button onClick={() => setViewCourseModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-850 transition">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+              {course.thumbnailUrl && (
+                <div className="w-full aspect-video max-h-44 bg-slate-100 dark:bg-zinc-800 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 relative">
+                  <img src={course.thumbnailUrl.startsWith("/") ? `${apiBase}${course.thumbnailUrl}` : course.thumbnailUrl} alt={course.name} className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => setFullscreenImage(`${apiBase}${course.thumbnailUrl!.startsWith("/") ? course.thumbnailUrl : "/" + course.thumbnailUrl}`)}
+                    className="absolute bottom-2 left-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-sm transition"
+                    title="View Fullscreen"
+                  >
+                    <Maximize2 size={14} />
+                  </button>
+                </div>
+              )}
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-zinc-50">{course.name}</h2>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-500 font-mono mt-0.5">{course.courseId}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 rounded-xl border border-slate-100 dark:border-zinc-850">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Chapters</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">{courseLessons.length}</span>
+                </div>
+                <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 rounded-xl border border-slate-100 dark:border-zinc-850">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Learners</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">{course.enrolled}</span>
+                </div>
+              </div>
+              {course.description ? (
+                <div className="p-3 rounded-xl border border-slate-100 bg-slate-50/20 dark:border-zinc-850 dark:bg-zinc-900/10">
+                  <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Course Description</h5>
+                  <div className="max-h-32 overflow-y-auto text-xs text-slate-650 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap pr-1">{course.description}</div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl border border-slate-100 bg-slate-50/20 dark:border-zinc-850 dark:bg-zinc-900/10">
+                  <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Course Description</h5>
+                  <p className="text-xs text-slate-400 italic">No description provided for this course yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Student Submission Review Modal */}
+      {reviewStudentSubmission && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50">Submission Details</h3>
+              <button onClick={() => setReviewStudentSubmission(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800"><X size={16} /></button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/50">
+                <p className="text-xs font-bold text-slate-505">Student: <span className="text-slate-800 dark:text-zinc-100">{reviewStudentSubmission.user?.name}</span></p>
+                <p className="text-xs font-bold text-slate-505">Score: <span className="text-blue-600 font-black">{reviewStudentSubmission.marksObtained}</span></p>
+              </div>
+              {reviewStudentSubmission.answers?.map((ans: any, i: number) => (
+                <div key={i} className={`p-3 rounded-xl border ${ans.isCorrect ? "border-green-200 bg-green-50 dark:border-green-900/40 dark:bg-green-950/20" : "border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20"}`}>
+                  <p className="text-xs font-bold text-slate-800 dark:text-zinc-100 mb-1">Q{i + 1}: {ans.question?.questionText}</p>
+                  <p className="text-xs text-slate-505">Your answer: <span className={ans.isCorrect ? "text-green-700 dark:text-green-400 font-semibold" : "text-red-600 dark:text-red-400 font-semibold"}>{ans.selectedOption}</span></p>
+                  {!ans.isCorrect && <p className="text-xs text-slate-505">Correct: <span className="text-green-700 dark:text-green-400 font-semibold">{ans.question?.correctAnswer}</span></p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fullscreenImage && (
+        <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setFullscreenImage(null)}>
+          <img src={fullscreenImage} alt="" className="max-w-full max-h-full object-contain" />
+        </div>
+      )}
+
+      <ConfirmModal
+        isOpen={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.description}
+        confirmText={confirmState.confirmLabel}
+        onConfirm={async () => {
+          setConfirmState(s => ({ ...s, open: false }));
+          await confirmState.onConfirm();
+        }}
+        onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
+      />
+    </>
+  );
+}
