@@ -106,6 +106,13 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
               active={isManageCoursesActive}
               onClick={onClose}
             />
+            <NavItem
+              icon={<CheckSquare size={18} />}
+              label="Manage Exams"
+              href="/dashboard?tab=manage-exam-groups"
+              active={currentTab === "manage-exam-groups"}
+              onClick={onClose}
+            />
             {isAdmin && (
               <NavItem
                 icon={<Users size={18} />}
@@ -137,6 +144,13 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
               label="Course Catalog"
               href="/dashboard?tab=catalog"
               active={currentTab === "catalog"}
+              onClick={onClose}
+            />
+            <NavItem
+              icon={<CheckSquare size={18} />}
+              label="Exam Groups"
+              href="/dashboard?tab=exam-groups"
+              active={currentTab === "exam-groups"}
               onClick={onClose}
             />
             <NavItem
@@ -533,22 +547,10 @@ function NavItem({
     onClick?.();
   };
 
-  // Build the href with a stable _r timestamp so each click produces a unique URL
-  // We use a ref so the timestamp only changes on click, not on every render
-  const [clickedHref, setClickedHref] = React.useState(href);
-
-  const handleMouseDown = () => {
-    const url = new URL(href, typeof window !== "undefined" ? window.location.origin : "http://localhost");
-    url.searchParams.set("_r", Date.now().toString());
-    setClickedHref(url.pathname + url.search);
-  };
-
   return (
     <Link
-      href={clickedHref}
+      href={href}
       onClick={handleClick}
-      onMouseDown={handleMouseDown}
-      onTouchStart={handleMouseDown}
       prefetch={false}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
         active

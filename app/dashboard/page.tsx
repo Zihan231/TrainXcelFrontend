@@ -26,6 +26,8 @@ import { TestBuilder } from "@/components/TestBuilder";
 import { EvaluationsDashboard } from "@/components/EvaluationsDashboard";
 import { TestPlayer } from "@/components/TestPlayer";
 import { LessonEvaluationView } from "@/components/LessonEvaluationView";
+import { ExamGroupManager } from "@/components/ExamGroupManager";
+import { ExamGroupCard } from "@/components/ExamGroupCard";
 import { toast } from "react-hot-toast";
 
 // Generates a unique color for any index using HSL
@@ -3308,6 +3310,7 @@ function DashboardPageContent() {
     ? [
         { key: "overview", label: "Overview" },
         { key: "manage-courses", label: "Manage Courses" },
+        { key: "manage-exam-groups", label: "Manage Exams" },
         { key: "evaluations", label: "Evaluations" },
         { key: "trash", label: "Recycle Bin" },
         { key: "users", label: "Users" },
@@ -3317,6 +3320,7 @@ function DashboardPageContent() {
         { key: "progress", label: "My Progress" },
         { key: "overview", label: "My Learning" },
         { key: "catalog", label: "Catalog" },
+        { key: "exam-groups", label: "Exam Groups" },
         { key: "certificates", label: "Certificates" },
         { key: "settings", label: "Settings" },
       ];
@@ -3331,6 +3335,8 @@ function DashboardPageContent() {
           return renderAdminOverview();
         case "manage-courses":
           return renderManageCourses();
+        case "manage-exam-groups":
+          return <ExamGroupManager />;
         case "evaluations":
           return <EvaluationsDashboard />;
         case "trash":
@@ -3349,6 +3355,8 @@ function DashboardPageContent() {
           return renderMyLearning();
         case "catalog":
           return renderCourseCatalog();
+        case "exam-groups":
+          return <StudentExamGroupsList />;
         case "progress":
           return renderLearnerProgressReport();
         case "certificates":
@@ -4053,6 +4061,7 @@ function DashboardPageContent() {
           actionLoading={actionLoading}
           fullscreenImage={fullscreenImage}
           setFullscreenImage={setFullscreenImage}
+          onUpdateCourseStatus={handleUpdateCourseStatus}
         />
       )}
 
@@ -4148,9 +4157,10 @@ interface CourseDetailsModalProps {
   actionLoading: boolean;
   fullscreenImage: string | null;
   setFullscreenImage: (url: string | null) => void;
+  onUpdateCourseStatus: (courseId: string, status: string) => void;
 }
 
-function CourseDetailsModal({ course, onClose, onEnroll, isAdminOrEmployee, learnerProgress, actionLoading, fullscreenImage, setFullscreenImage }: CourseDetailsModalProps) {
+function CourseDetailsModal({ course, onClose, onEnroll, isAdminOrEmployee, learnerProgress, actionLoading, fullscreenImage, setFullscreenImage, onUpdateCourseStatus }: CourseDetailsModalProps) {
   const isEnrolled = learnerProgress[course.courseId] !== undefined && learnerProgress[course.courseId] >= 0;
   const catName = (course as any).category?.name || (course.categoryId === 1 ? "Software" : course.categoryId === 2 ? "Business" : "Compliance");
 
@@ -4206,6 +4216,12 @@ function CourseDetailsModal({ course, onClose, onEnroll, isAdminOrEmployee, lear
               <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 rounded-xl border border-slate-100 dark:border-zinc-850">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Status</span>
                 <span className={`text-xs font-bold capitalize ${course.status === "active" ? "text-green-600" : course.status === "draft" ? "text-amber-600" : "text-rose-600"}`}>{course.status}</span>
+                <button
+                  onClick={() => onUpdateCourseStatus(course.id || course.courseId, course.status === "active" ? "inactive" : "active")}
+                  className="mt-2 rounded-lg text-[10px] font-bold px-3 py-1.5 transition border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                >
+                  {course.status === "active" ? "Set Inactive" : "Set Active"}
+                </button>
               </div>
             )}
             <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 rounded-xl border border-slate-100 dark:border-zinc-850">
@@ -4393,6 +4409,130 @@ function UserDetailsModal({ user, onClose, setFullscreenImage }: UserDetailsModa
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function StudentExamGroupsList() {
+  const { userId, role } = useUser();
+  const [examGroups, setExamGroups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "enrolled">("all");
+  const [enrolledIds, setEnrolledIds] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!userId) return;
+    setLoading(true);
+    api.get("/exam-groups", { params: { page: 1, limit: 50, q: search || undefined } })
+      .then((res) => {
+        const data = Array.isArray(res.data) ? res.data : (res.data.data || []);
+        setExamGroups(data);
+        
+        const newEnrolled = new Set<number>();
+        data.forEach((eg: any) => {
+          if (eg.enrollments?.some((e: any) => e.user?.userId === userId)) {
+            newEnrolled.add(eg.id);
+          }
+        });
+        setEnrolledIds((prev) => {
+          const merged = new Set(prev);
+          newEnrolled.forEach((id) => merged.add(id));
+          return merged;
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [userId, search]);
+
+  const handleJoin = async (examGroupId: number) => {
+    try {
+      await api.post(`/exam-groups/${examGroupId}/join`);
+      toast.success("Joined exam successfully!");
+      setEnrolledIds((prev) => new Set(prev).add(examGroupId));
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to join exam.");
+    }
+  };
+
+  const handleView = (examGroupId: number) => {
+    window.location.href = `/exam-groups/${examGroupId}`;
+  };
+
+  return (
+    <div className="flex flex-col gap-5 pb-6 animate-fadeIn">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">Exam Groups</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Browse and join available exams.</p>
+        </div>
+        <div className="relative w-full sm:w-auto flex items-center gap-2">
+          <div className="flex bg-slate-100 p-1 rounded-xl dark:bg-zinc-800">
+            <button
+              onClick={() => setFilter("all")}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${filter === "all" ? "bg-white text-slate-800 shadow-sm dark:bg-zinc-700 dark:text-zinc-50" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
+            >
+              All Exams
+            </button>
+            <button
+              onClick={() => setFilter("enrolled")}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${filter === "enrolled" ? "bg-white text-slate-800 shadow-sm dark:bg-zinc-700 dark:text-zinc-50" : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
+            >
+              My Exams
+            </button>
+          </div>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search exams..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full sm:w-48 rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+            />
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+          <p className="text-sm text-slate-500">Loading exam groups...</p>
+        </div>
+      ) : examGroups.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800">
+          <BookOpen size={40} className="text-slate-300 dark:text-zinc-700" />
+          <p className="text-sm text-slate-500">No exam groups available.</p>
+        </div>
+      ) : (
+        (() => {
+          const displayedGroups = filter === "enrolled" ? examGroups.filter(eg => enrolledIds.has(eg.id)) : examGroups;
+          
+          if (displayedGroups.length === 0) {
+            return (
+              <div className="flex flex-col items-center justify-center py-20 gap-3 bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800">
+                <BookOpen size={40} className="text-slate-300 dark:text-zinc-700" />
+                <p className="text-sm text-slate-500">No {filter === "enrolled" ? "enrolled " : ""}exams found.</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {displayedGroups.map((eg) => (
+                <ExamGroupCard
+                  key={eg.id}
+                  examGroup={{ ...eg, totalQuestions: eg.questions?.length ?? 0 }}
+                  onClick={() => handleView(eg.id)}
+                  onJoin={() => handleJoin(eg.id)}
+                  showActions
+                  userRole="user"
+                  isEnrolled={enrolledIds.has(eg.id)}
+                />
+              ))}
+            </div>
+          );
+        })()
+      )}
     </div>
   );
 }

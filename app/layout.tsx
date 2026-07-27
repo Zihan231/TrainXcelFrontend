@@ -40,7 +40,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="flex min-h-full flex-col bg-white font-sans dark:bg-[#0a0a0a]">
+      <body suppressHydrationWarning className="flex min-h-full flex-col bg-white font-sans dark:bg-[#0a0a0a]">
         <ThemeProvider>
           <AuthProvider>
             <Toaster position="top-center" />

@@ -1304,24 +1304,172 @@ export function CourseDetailView({
 
       {/* Student Submission Review Modal */}
       {reviewStudentSubmission && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50">Submission Details</h3>
-              <button onClick={() => setReviewStudentSubmission(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800"><X size={16} /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn overflow-y-auto">
+          <div className="w-full max-w-4xl bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-scaleIn my-auto">
+            <button onClick={() => setReviewStudentSubmission(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+              <ArrowLeft size={14} className="stroke-[3px]" /> Back to Submissions
+            </button>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50">Reviewing Answers: {reviewStudentSubmission.user?.name}</h3>
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/50">
-                <p className="text-xs font-bold text-slate-505">Student: <span className="text-slate-800 dark:text-zinc-100">{reviewStudentSubmission.user?.name}</span></p>
-                <p className="text-xs font-bold text-slate-505">Score: <span className="text-blue-600 font-black">{reviewStudentSubmission.marksObtained}</span></p>
-              </div>
-              {reviewStudentSubmission.answers?.map((ans: any, i: number) => (
-                <div key={i} className={`p-3 rounded-xl border ${ans.isCorrect ? "border-green-200 bg-green-50 dark:border-green-900/40 dark:bg-green-950/20" : "border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20"}`}>
-                  <p className="text-xs font-bold text-slate-800 dark:text-zinc-100 mb-1">Q{i + 1}: {ans.question?.questionText}</p>
-                  <p className="text-xs text-slate-505">Your answer: <span className={ans.isCorrect ? "text-green-700 dark:text-green-400 font-semibold" : "text-red-600 dark:text-red-400 font-semibold"}>{ans.selectedOption}</span></p>
-                  {!ans.isCorrect && <p className="text-xs text-slate-505">Correct: <span className="text-green-700 dark:text-green-400 font-semibold">{ans.question?.correctAnswer}</span></p>}
-                </div>
-              ))}
+            <p className="text-sm text-slate-500 mb-6">Score obtained: <span className="font-bold text-blue-600">{reviewStudentSubmission.marksObtained}</span> points</p>
+            <div className="flex flex-col gap-6">
+              {(reviewStudentSubmission.answers || []).map((ans: any, idx: number) => {
+                let rawProvided = ans.providedAnswer;
+                if (typeof rawProvided === 'string') {
+                  try { rawProvided = JSON.parse(rawProvided); } catch (e) {}
+                }
+                let rawCorrect = ans.question?.correctAnswers;
+                if (typeof rawCorrect === 'string') {
+                  try { rawCorrect = JSON.parse(rawCorrect); } catch (e) {}
+                }
+
+                const isCQ = ans.question?.type === "CQ" || ans.question?.type === "Video";
+                const provided = Array.isArray(rawProvided) ? rawProvided : [rawProvided];
+                const correct = Array.isArray(rawCorrect) ? rawCorrect : [rawCorrect];
+                const isCorrect = !isCQ && provided.length === correct.length && provided.every((v: string) => correct.includes(v));
+
+                let parsedFeedback: any = null;
+                try { parsedFeedback = JSON.parse(ans.evaluatorComment); } catch (e) {}
+                const hasAiFeedback = parsedFeedback && typeof parsedFeedback === 'object' && ('postureScore' in parsedFeedback);
+
+                return (
+                  <div key={ans.id || idx} className="p-5 rounded-xl border border-slate-200 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700">
+                    <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-1">{idx + 1}. {ans.question?.questionText}</h5>
+                    <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+                      <span>Total Marks: {ans.question?.marks}</span>
+                      <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : (isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "text-amber-500" : "text-rose-600")}`}>
+                        Marks Awarded: {isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "Pending" : (ans.marksAwarded ?? 0)}
+                      </span>
+                    </div>
+                    {!isCQ && ans.question?.options ? (
+                      <div className="flex flex-col gap-2">
+                        {ans.question.options.map((opt: string, oIdx: number) => {
+                          const optionKey = `option_${oIdx}`;
+                          const wasSelected = provided.includes(opt) || provided.includes(optionKey);
+                          const isOptCorrect = correct.includes(opt) || correct.includes(optionKey);
+                          
+                          let cls = "border-slate-200 bg-white dark:bg-zinc-900";
+                          if (wasSelected && isOptCorrect) cls = "border-green-500 bg-green-50 dark:bg-green-950/20";
+                          else if (wasSelected && !isOptCorrect) cls = "border-rose-500 bg-rose-50 dark:bg-rose-950/20";
+                          else if (!wasSelected && isOptCorrect) cls = "border-green-500 border-dashed bg-green-50/50 dark:bg-green-950/10";
+                          
+                          return (
+                            <div key={oIdx} className={`p-3 rounded-lg border ${cls} text-sm flex justify-between items-center transition-colors`}>
+                              <span className="text-slate-700 dark:text-zinc-300">{opt}</span>
+                              <div className="flex gap-1.5 text-[10px] font-bold">
+                                {wasSelected && <span className="text-slate-400 bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">Your Answer</span>}
+                                {isOptCorrect && <span className="text-green-600 bg-green-100 dark:bg-green-950/40 px-1.5 py-0.5 rounded">Correct</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {ans.question?.type === "Video" || (provided.length > 0 && typeof provided[0] === 'string' && provided[0].startsWith('http') && (provided[0].includes('.mp4') || provided[0].includes('.webm') || provided[0].includes('cloudinary') || provided[0].includes('video'))) ? (
+                          <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 flex flex-col md:flex-row gap-6 items-stretch">
+                            <div className="shrink-0 flex flex-col gap-1 w-full md:w-auto">
+                              <span className="text-slate-500 text-xs font-bold">Student Video Answer:</span>
+                              <video 
+                                src={(() => {
+                                  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                                  const url = provided.length > 0 ? provided[0] : "";
+                                  return url.startsWith("http") ? url : `${base}${url}`;
+                                })()} 
+                                controls 
+                                className="w-full md:max-w-[320px] rounded-lg border border-slate-200 dark:border-zinc-700 bg-black" 
+                              />
+                            </div>
+                            
+                            <div className="flex-1 flex flex-col gap-2 justify-center min-w-0 w-full">
+                              {hasAiFeedback ? (
+                                <>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">
+                                      {ans.evaluatedBy === 'AI' ? 'AI Evaluation Details:' : 'Evaluation Details:'}
+                                    </p>
+                                    <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                                      {ans.evaluatedBy === 'AI' ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col gap-2 w-full">
+                                    <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                      <div className="w-28 shrink-0">
+                                        <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Posture & Dress</span>
+                                        <span className="text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsedFeedback.postureScore}</span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsedFeedback.postureFeedback}</p>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                      <div className="w-28 shrink-0">
+                                        <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Voice & Clarity</span>
+                                        <span className="text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsedFeedback.attitudeScore}</span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsedFeedback.attitudeFeedback}</p>
+                                    </div>
+                                    <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800 rounded-xl flex items-start gap-4">
+                                      <div className="w-28 shrink-0">
+                                        <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">Script Accuracy</span>
+                                        <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full block w-fit mt-1">Score: {parsedFeedback.accuracyScore}</span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed flex-1 break-words">{parsedFeedback.accuracyFeedback}</p>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm w-full">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
+                                    <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                      Reviewed by Invigilator
+                                    </span>
+                                  </div>
+                                  <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment || "No feedback comments provided yet."}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-zinc-900 text-sm">
+                              <p className="text-slate-500 text-xs font-bold mb-1">Student's Answer:</p>
+                              {provided.length > 0 && typeof provided[0] === 'string' && provided[0].startsWith('http') ? (
+                                provided[0].match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
+                                  <img src={provided[0]} alt="Student answer" className="max-w-full h-auto mt-1 rounded-xl border border-slate-200 dark:border-zinc-800" />
+                                ) : (
+                                  <a href={provided[0]} target="_blank" rel="noreferrer" className="text-blue-500 underline font-semibold break-all inline-block mt-1">View Attachment</a>
+                                )
+                              ) : (
+                                <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{provided.join(", ") || "No answer provided."}</p>
+                              )}
+                            </div>
+                            
+                            {correct.length > 0 && correct[0] && (
+                              <div className="p-4 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/10 dark:border-green-900/30 text-sm">
+                                <p className="text-green-700 dark:text-green-500 text-xs font-bold mb-1">Correct Answer:</p>
+                                <p className="text-green-800 dark:text-green-300 whitespace-pre-wrap">{correct.join(", ")}</p>
+                              </div>
+                            )}
+
+                            {ans.evaluatorComment && (
+                              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm mt-2">
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
+                                  <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                    Reviewed by Invigilator
+                                  </span>
+                                </div>
+                                <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
