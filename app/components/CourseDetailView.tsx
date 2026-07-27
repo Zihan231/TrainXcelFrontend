@@ -13,7 +13,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Play, FileText, Check, CheckCircle, ExternalLink,
   Maximize2, MonitorPlay, Sparkles, Settings, Pencil, Trash2,
-  Award, Trophy, Loader2, Clock, Eye, X,
+  Award, Trophy, Loader2, Clock, Eye, X, Lock, GraduationCap,
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -152,6 +152,15 @@ export function CourseDetailView({
   const [standaloneExamsLoading, setStandaloneExamsLoading] = useState(false);
   const [selectedStandaloneExam, setSelectedStandaloneExam] = useState<any | null>(null);
   const [evaluatingStandaloneExam, setEvaluatingStandaloneExam] = useState<any | null>(null);
+
+  // Final Exam (testType=Course) state
+  const [finalExams, setFinalExams] = useState<any[]>([]);
+  const [finalExamsLoading, setFinalExamsLoading] = useState(false);
+  const [selectedFinalExam, setSelectedFinalExam] = useState<any | null>(null);
+  const [evaluatingFinalExam, setEvaluatingFinalExam] = useState<any | null>(null);
+  // Per-exam submission status for student (examId -> submission | null)
+  const [finalExamSubmissions, setFinalExamSubmissions] = useState<Record<number, any>>({});
+
   const [isNextLessonTransition, setIsNextLessonTransition] = useState(false);
 
   // ── Admin Tabs ────────────────────────────────────────────────────────────
@@ -304,6 +313,36 @@ export function CourseDetailView({
       .finally(() => setStandaloneExamsLoading(false));
     setSelectedStandaloneExam(null);
   }, [courseId]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Final Exams (testType=Course)
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!courseId) return;
+    setFinalExamsLoading(true);
+    api.get(`/tests/course/${courseId}`)
+      .then(res => setFinalExams(res.data || []))
+      .catch(() => setFinalExams([]))
+      .finally(() => setFinalExamsLoading(false));
+  }, [courseId]);
+
+  // Fetch student submission status for each final exam
+  useEffect(() => {
+    if (isAdminOrEmployee || finalExams.length === 0) return;
+    const fetchStatuses = async () => {
+      const results: Record<number, any> = {};
+      await Promise.all(finalExams.map(async (exam) => {
+        try {
+          const res = await api.get(`/tests/${exam.id}/my-submission`);
+          results[exam.id] = res.data || null;
+        } catch {
+          results[exam.id] = null;
+        }
+      }));
+      setFinalExamSubmissions(results);
+    };
+    fetchStatuses();
+  }, [finalExams, isAdminOrEmployee]);
 
   useEffect(() => {
     if (selectedStandaloneExam && standalonePlayerRef.current) {
@@ -1235,6 +1274,105 @@ export function CourseDetailView({
                 </div>
               )}
             </div>
+
+            {/* Final Exam Section */}
+            {(isAdminOrEmployee || finalExams.length > 0) && (
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-zinc-50 flex items-center gap-1.5">
+                    <GraduationCap size={15} className="text-indigo-500" /> Final Exam
+                  </h4>
+                  {isAdminOrEmployee && <span className="text-[10px] font-bold text-slate-400 uppercase">{finalExams.length} Exam{finalExams.length !== 1 ? "s" : ""}</span>}
+                </div>
+
+                {finalExamsLoading ? (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2"><Loader2 size={20} className="text-indigo-500 animate-spin" /><span className="text-xs text-slate-400 animate-pulse">Loading final exams...</span></div>
+                ) : finalExams.length === 0 ? (
+                  isAdminOrEmployee ? (
+                    <div className="text-center py-6 text-xs text-slate-400">No final exam created yet. Use TestBuilder → "Final Course Exam".</div>
+                  ) : null
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {finalExams.map((exam: any) => {
+                      const allLessonsComplete = learnerProgress >= 100;
+                      const studentSubmission = finalExamSubmissions[exam.id];
+                      const isUnlocked = isAdminOrEmployee || allLessonsComplete;
+                      const qCount = exam.questions?.length || 0;
+                      const mcqCount = exam.questions?.filter((q: any) => q.type === "MCQ").length || 0;
+                      const cqCount = exam.questions?.filter((q: any) => q.type === "CQ").length || 0;
+                      const vidCount = exam.questions?.filter((q: any) => q.type === "Video").length || 0;
+
+                      return (
+                        <div key={exam.id} className={`rounded-xl border p-3 transition ${
+                          isUnlocked
+                            ? "bg-gradient-to-br from-indigo-50/60 to-purple-50/40 border-indigo-200 dark:from-indigo-950/20 dark:to-purple-950/10 dark:border-indigo-900/40"
+                            : "bg-slate-50 border-slate-200 dark:bg-zinc-800/30 dark:border-zinc-700/50 opacity-75"
+                        }`}>
+                          <div className="flex items-start gap-2.5">
+                            <div className={`h-10 w-10 shrink-0 rounded-lg flex items-center justify-center border ${
+                              isUnlocked
+                                ? "bg-indigo-600 border-indigo-700 text-white"
+                                : "bg-slate-200 dark:bg-zinc-700 border-slate-300 dark:border-zinc-600 text-slate-400"
+                            }`}>
+                              {isUnlocked ? <GraduationCap size={18} /> : <Lock size={16} />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-900 dark:text-zinc-100 line-clamp-2">{exam.title}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">{qCount} questions ({mcqCount} MCQ · {cqCount} CQ · {vidCount} Video)</p>
+
+                              {/* Admin actions */}
+                              {isAdminOrEmployee && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <button
+                                    onClick={() => setEvaluatingFinalExam(exam)}
+                                    className="px-2.5 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-lg border border-indigo-100 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800 transition"
+                                  >
+                                    Evaluate
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Student: locked */}
+                              {!isAdminOrEmployee && !isUnlocked && (
+                                <div className="mt-2">
+                                  <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-zinc-400">
+                                    <Lock size={10} /> Complete all lessons to unlock ({Math.round(learnerProgress)}% done)
+                                  </div>
+                                  <div className="mt-1.5 w-full h-1.5 bg-slate-200 dark:bg-zinc-700 rounded-full overflow-hidden">
+                                    <div className="h-full bg-indigo-400 transition-all rounded-full" style={{ width: `${learnerProgress}%` }} />
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Student: submitted */}
+                              {!isAdminOrEmployee && isUnlocked && studentSubmission && (
+                                <div className="mt-2 flex items-center gap-1.5">
+                                  <CheckCircle size={12} className="text-green-500" />
+                                  <span className="text-[10px] font-bold text-green-600 dark:text-green-400">Submitted ✓</span>
+                                  {studentSubmission.marksObtained !== undefined && (
+                                    <span className="ml-1 text-[10px] text-slate-500 dark:text-zinc-400">Score: <strong className="text-slate-800 dark:text-zinc-100">{studentSubmission.marksObtained}</strong></span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Student: take exam */}
+                              {!isAdminOrEmployee && isUnlocked && !studentSubmission && (
+                                <button
+                                  onClick={() => setSelectedFinalExam(exam)}
+                                  className="mt-2 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition shadow-sm"
+                                >
+                                  <Play size={10} /> Take Final Exam
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1551,6 +1689,60 @@ export function CourseDetailView({
                   onClearStandalone={() => setEvaluatingStandaloneExam(null)}
                />
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* Final Exam Player Modal (Student) */}
+      {selectedFinalExam && !isAdminOrEmployee && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl w-full max-w-5xl flex flex-col h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-zinc-800 flex justify-between items-center bg-indigo-50 dark:bg-zinc-900">
+              <h2 className="font-bold text-slate-800 dark:text-zinc-100 flex items-center gap-2">
+                <GraduationCap size={18} className="text-indigo-600" /> Final Exam: {selectedFinalExam.title}
+              </h2>
+              <button onClick={() => setSelectedFinalExam(null)} className="p-2 rounded-full hover:bg-indigo-100 dark:hover:bg-zinc-800 transition text-slate-500">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 bg-slate-50/30 dark:bg-[#121212]">
+              <TestPlayer
+                externalTest={selectedFinalExam}
+                isAdmin={false}
+                onSuccess={async () => {
+                  setSelectedFinalExam(null);
+                  // Refresh submission status
+                  try {
+                    const res = await api.get(`/tests/${selectedFinalExam.id}/my-submission`);
+                    setFinalExamSubmissions(prev => ({ ...prev, [selectedFinalExam.id]: res.data || null }));
+                  } catch {}
+                }}
+                onCancel={() => setSelectedFinalExam(null)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Final Exam Evaluation Modal (Admin) */}
+      {evaluatingFinalExam && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl w-full max-w-6xl flex flex-col h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-zinc-800 flex justify-between items-center bg-indigo-50 dark:bg-zinc-900">
+              <h2 className="font-bold text-slate-800 dark:text-zinc-100 flex items-center gap-2">
+                <GraduationCap size={18} className="text-indigo-500" /> Evaluate Final Exam
+              </h2>
+              <button onClick={() => setEvaluatingFinalExam(null)} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-zinc-800 transition text-slate-500">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30 dark:bg-[#121212]">
+              <LessonEvaluationView
+                courseId={course.courseId}
+                standaloneExam={evaluatingFinalExam}
+                onClearStandalone={() => setEvaluatingFinalExam(null)}
+              />
+            </div>
           </div>
         </div>
       )}
