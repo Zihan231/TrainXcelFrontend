@@ -1030,17 +1030,19 @@ export function CourseDetailView({
                                 courseId={course.id}
                                 lessons={courseLessons}
                                 initialLessonId={selectedLesson?.id}
-                                onSuccess={async (createdForLessonId?: number) => {
-                                  setShowAddTestForm(false);
-                                  const freshLessons = await loadCourseLessons(course.courseId);
-                                  if (createdForLessonId && freshLessons?.length) {
-                                    const targetLesson = freshLessons.find((l: any) => l.id === createdForLessonId);
-                                    if (targetLesson) { setSelectedLesson(targetLesson); setShowTestPlayer(true); }
-                                  } else if (selectedLesson) {
-                                    try { const res = await api.get(`/tests/lesson/${selectedLesson.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
-                                  }
-                                  try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
-                                }}
+                  onSuccess={async (createdForLessonId?: number) => {
+                    setShowAddTestForm(false);
+                    const freshLessons = await loadCourseLessons(course.courseId);
+                    if (createdForLessonId && freshLessons?.length) {
+                      const targetLesson = freshLessons.find((l: any) => l.id === createdForLessonId);
+                      if (targetLesson) { setSelectedLesson(targetLesson); setShowTestPlayer(true); }
+                    } else if (selectedLesson) {
+                      try { const res = await api.get(`/tests/lesson/${selectedLesson.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
+                    }
+                    try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
+                    // Immediately refresh final exams so admin sees newly created final exam without manual refresh
+                    try { const res = await api.get(`/tests/course/${course.courseId}`); setFinalExams(res.data || []); } catch {}
+                  }}
                               />
                             </div>
                           )}
