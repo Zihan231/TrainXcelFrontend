@@ -151,6 +151,7 @@ export function CourseDetailView({
   const [standaloneExams, setStandaloneExams] = useState<any[]>([]);
   const [standaloneExamsLoading, setStandaloneExamsLoading] = useState(false);
   const [selectedStandaloneExam, setSelectedStandaloneExam] = useState<any | null>(null);
+  const [evaluatingStandaloneExam, setEvaluatingStandaloneExam] = useState<any | null>(null);
   const [isNextLessonTransition, setIsNextLessonTransition] = useState(false);
 
   // ── Admin Tabs ────────────────────────────────────────────────────────────
@@ -196,7 +197,9 @@ export function CourseDetailView({
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
   const [remainingSubmissions, setRemainingSubmissions] = useState(0);
   const [isMarksLoading, setIsMarksLoading] = useState(false);
+  const [marksExamType, setMarksExamType] = useState<"lesson" | "standalone">("lesson");
   const [marksLesson, setMarksLesson] = useState<any | null>(null);
+  const [marksStandaloneExam, setMarksStandaloneExam] = useState<any | null>(null);
   const [reviewStudentSubmission, setReviewStudentSubmission] = useState<any | null>(null);
   const [isReviewLoading, setIsReviewLoading] = useState<number | null>(null);
 
@@ -328,11 +331,18 @@ export function CourseDetailView({
   // Student marks
   // ─────────────────────────────────────────────────────────────────────────
   const loadStudentMarks = useCallback(async () => {
-    const lesson = marksLesson || selectedLesson;
-    if (!lesson) return;
     setIsMarksLoading(true);
     try {
-      const res = await api.get(`/tests/lesson/${lesson.id}/submissions`);
+      let res;
+      if (marksExamType === "lesson") {
+        const lesson = marksLesson || selectedLesson;
+        if (!lesson) { setStudentMarks([]); setRemainingSubmissions(0); return; }
+        res = await api.get(`/tests/lesson/${lesson.id}/submissions`);
+      } else {
+        const exam = marksStandaloneExam || (standaloneExams.length > 0 ? standaloneExams[0] : null);
+        if (!exam) { setStudentMarks([]); setRemainingSubmissions(0); return; }
+        res = await api.get(`/tests/test/${exam.id}/submissions`);
+      }
       const payload = res.data || {};
       const submissions = Array.isArray(payload.submissions) ? payload.submissions : [];
       const remaining = typeof payload.remaining === "number" ? payload.remaining : 0;
@@ -343,13 +353,13 @@ export function CourseDetailView({
     } finally {
       setIsMarksLoading(false);
     }
-  }, [marksLesson, selectedLesson]);
+  }, [marksExamType, marksLesson, selectedLesson, marksStandaloneExam, standaloneExams]);
 
   useEffect(() => {
     if (courseDetailsTab === "student-marks") {
       loadStudentMarks();
     }
-  }, [courseDetailsTab, loadStudentMarks, marksLesson]);
+  }, [courseDetailsTab, loadStudentMarks, marksLesson, marksStandaloneExam, marksExamType]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Admin leaderboard
@@ -1042,23 +1052,45 @@ export function CourseDetailView({
                       {courseDetailsTab === "student-marks" && (
                         <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                           <div className="flex items-center justify-between mb-3">
-                            <h4 className="font-bold text-slate-900 dark:text-zinc-50">Student Marks - {selectedLesson?.title || "No Lesson Selected"}</h4>
+                            <h4 className="font-bold text-slate-900 dark:text-zinc-50">
+                              Student Marks {marksExamType === "lesson" ? (marksLesson?.title || selectedLesson?.title ? `- ${marksLesson?.title || selectedLesson?.title}` : "") : (marksStandaloneExam?.title || (standaloneExams.length > 0 ? `- ${standaloneExams[0].title}` : ""))}
+                            </h4>
                             <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full">
                               {remainingSubmissions > 0 ? `${remainingSubmissions} submission${remainingSubmissions !== 1 ? "s" : ""} remaining` : "All submissions evaluated"}
                             </span>
                           </div>
-                          <div className="mb-4">
-                            <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Lesson</label>
-                            <select value={marksLesson?.lessonId || selectedLesson?.lessonId || ""} onChange={e => { const val = e.target.value; if (val === "") { setMarksLesson(null); } else { const found = courseLessons.find((l: any) => String(l.lessonId) === val); setMarksLesson(found || null); } }} className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-                              {courseLessons.map((l: any) => <option key={l.lessonId} value={l.lessonId}>{l.title}</option>)}
-                            </select>
+
+                          {/* Toggle */}
+                          <div className="flex gap-2 mb-4 bg-slate-100 dark:bg-zinc-800/50 p-1 rounded-xl w-fit">
+                            <button onClick={() => setMarksExamType("lesson")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${marksExamType === "lesson" ? "bg-white dark:bg-zinc-700 shadow-sm text-slate-800 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700"}`}>Lesson Exams</button>
+                            <button onClick={() => setMarksExamType("standalone")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${marksExamType === "standalone" ? "bg-white dark:bg-zinc-700 shadow-sm text-slate-800 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700"}`}>Standalone Exams</button>
                           </div>
-                          {!selectedLesson ? (
+
+                          <div className="mb-4">
+                            {marksExamType === "lesson" ? (
+                              <>
+                                <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Lesson</label>
+                                <select value={marksLesson?.lessonId || selectedLesson?.lessonId || ""} onChange={e => { const val = e.target.value; if (val === "") { setMarksLesson(null); } else { const found = courseLessons.find((l: any) => String(l.lessonId) === val); setMarksLesson(found || null); } }} className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                                  {courseLessons.map((l: any) => <option key={l.lessonId} value={l.lessonId}>{l.title}</option>)}
+                                </select>
+                              </>
+                            ) : (
+                              <>
+                                <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Standalone Exam</label>
+                                <select value={marksStandaloneExam?.id || (standaloneExams.length > 0 ? standaloneExams[0].id : "")} onChange={e => { const val = e.target.value; if (val === "") { setMarksStandaloneExam(null); } else { const found = standaloneExams.find((l: any) => String(l.id) === val); setMarksStandaloneExam(found || null); } }} className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                                  {standaloneExams.map((l: any) => <option key={l.id} value={l.id}>{l.title}</option>)}
+                                </select>
+                              </>
+                            )}
+                          </div>
+                          {marksExamType === "lesson" && !selectedLesson && !marksLesson ? (
                             <p className="text-xs text-slate-400">Please select a lesson from the playlist to view student marks.</p>
+                          ) : marksExamType === "standalone" && standaloneExams.length === 0 ? (
+                            <p className="text-xs text-slate-400">No standalone exams found.</p>
                           ) : isMarksLoading ? (
                             <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading marks...</span></div>
                           ) : studentMarks.length === 0 ? (
-                            <p className="text-xs text-slate-400 py-4 text-center">No student test submissions found for this lesson.</p>
+                            <p className="text-xs text-slate-400 py-4 text-center">No student test submissions found for this test.</p>
                           ) : (
                             <div className="overflow-x-auto">
                               <table className="w-full text-left">
@@ -1182,7 +1214,14 @@ export function CourseDetailView({
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-slate-900 line-clamp-2 dark:text-zinc-100" title={exam.title}>{exam.title}</p>
                           <p className="text-[9px] text-slate-400 font-mono mt-0.5">{exam.questions?.length || 0} questions</p>
-                          <div className="flex items-center gap-1.5 mt-1.5"><span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500"><Award size={10} /> Timed Exam</span></div>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500"><Award size={10} /> Timed Exam</span>
+                            {isAdminOrEmployee && (
+                              <button onClick={(e) => { e.stopPropagation(); setEvaluatingStandaloneExam(exam); }} className="px-2 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg border border-blue-100 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800 transition">
+                                Evaluate
+                              </button>
+                            )}
+                          </div>
                           {(exam.startTime || exam.endTime) && (
                             <div className="flex flex-col gap-0.5 mt-1 text-[9px] text-slate-500 font-medium">
                               {exam.startTime && <span>Starts: {new Date(exam.startTime).toLocaleString()}</span>}
@@ -1492,6 +1531,29 @@ export function CourseDetailView({
         }}
         onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
       />
+
+      {/* Standalone Exam Evaluation Modal */}
+      {evaluatingStandaloneExam && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-[#121212] border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl w-full max-w-6xl flex flex-col h-[90vh] overflow-hidden">
+             <div className="p-4 border-b border-slate-200 dark:border-zinc-800 flex justify-between items-center bg-slate-50 dark:bg-zinc-900">
+                <h2 className="font-bold text-slate-800 dark:text-zinc-100 flex items-center gap-2">
+                  <Award size={18} className="text-amber-500" /> Evaluate Standalone Exam
+                </h2>
+                <button onClick={() => setEvaluatingStandaloneExam(null)} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-zinc-800 transition text-slate-500">
+                  <X size={18} />
+                </button>
+             </div>
+             <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30 dark:bg-[#121212]">
+               <LessonEvaluationView 
+                  courseId={course.courseId} 
+                  standaloneExam={evaluatingStandaloneExam}
+                  onClearStandalone={() => setEvaluatingStandaloneExam(null)}
+               />
+             </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

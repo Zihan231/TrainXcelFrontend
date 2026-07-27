@@ -144,7 +144,7 @@ export function ExamGroupManager() {
           {examGroups.map((eg) => (
             <ExamGroupCard
               key={eg.id}
-              examGroup={{ ...eg, totalQuestions: eg.questions?.length ?? 0 }}
+              examGroup={{ ...eg, totalQuestions: (eg as any).questions?.length ?? 0 }}
               onManage={() => { window.location.href = `/dashboard/exam-groups/${eg.id}/manage`; }}
               onDelete={() => setDeleteExamId(eg.id)}
               showActions
@@ -229,12 +229,11 @@ export function ExamGroupManager() {
 
       <ConfirmModal
         isOpen={deleteExamId !== null}
-        onClose={() => setDeleteExamId(null)}
+        onCancel={() => setDeleteExamId(null)}
         onConfirm={() => deleteExamId && confirmDelete(deleteExamId)}
         title="Delete Exam Group"
         message="Are you sure you want to delete this exam group? This action cannot be undone and will delete all associated questions, enrollments, and submissions."
         confirmText="Delete Exam Group"
-        isDestructive={true}
       />
     </div>
   );

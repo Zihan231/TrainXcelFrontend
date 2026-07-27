@@ -16,23 +16,36 @@ import {
   CheckCircle2,
   Circle,
   MoreVertical,
+  Clock,
+  X,
   ChevronDown,
   ChevronUp,
   Pencil,
 } from "lucide-react";
+import ExamGroupEvaluationView from "./ExamGroupEvaluationView";
 
 type QuestionFormState = {
   questionText: string;
+  type: string;
   options: string[];
   correctAnswers: string[];
   marks: number;
+  postureMarks: number;
+  voiceMarks: number;
+  accuracyMarks: number;
+  evaluationType: string;
 };
 
 const emptyQuestion: QuestionFormState = {
   questionText: "",
+  type: "MCQ",
   options: ["", "", "", ""],
   correctAnswers: [],
   marks: 1,
+  postureMarks: 0,
+  voiceMarks: 0,
+  accuracyMarks: 0,
+  evaluationType: "AI",
 };
 
 export default function ManageExamGroupPage() {
@@ -176,26 +189,33 @@ export default function ManageExamGroupPage() {
       options: q.options || ["", "", "", ""],
       correctAnswers: q.correctAnswers || [],
       marks: q.marks || 1,
+      type: q.type || "MCQ",
+      postureMarks: q.postureMarks || 0,
+      voiceMarks: q.voiceMarks || 0,
+      accuracyMarks: q.accuracyMarks || 0,
+      evaluationType: q.evaluationType || "AI",
     });
   };
 
   const handleAddQuestion = async (keepOpen: boolean) => {
     if (!examGroupId) return;
 
-    const filledOptions = newQuestion.options.map((o, i) =>
-      o.trim() || `Option ${i + 1}`,
-    );
-    if (filledOptions.filter(Boolean).length < 2) {
-      toast.error("Please provide at least 2 options.");
-      return;
-    }
-    if (newQuestion.correctAnswers.length === 0) {
-      toast.error("Please select at least one correct answer.");
-      return;
-    }
     if (!newQuestion.questionText.trim()) {
       toast.error("Question text is required.");
       return;
+    }
+
+    let filledOptions: string[] = [];
+    if (newQuestion.type === 'MCQ') {
+      filledOptions = newQuestion.options.map((o, i) => o.trim() || `Option ${i + 1}`);
+      if (filledOptions.filter(Boolean).length < 2) {
+        toast.error("Please provide at least 2 options for MCQ.");
+        return;
+      }
+      if (newQuestion.correctAnswers.length === 0) {
+        toast.error("Please select at least one correct answer.");
+        return;
+      }
     }
 
     setIsAddingQuestion(true);
@@ -206,9 +226,14 @@ export default function ManageExamGroupPage() {
           questions: [
             {
               questionText: newQuestion.questionText.trim(),
-              options: filledOptions,
-              correctAnswers: newQuestion.correctAnswers,
+              type: newQuestion.type,
+              options: newQuestion.type === 'MCQ' ? filledOptions : [],
+              correctAnswers: newQuestion.type === 'MCQ' ? newQuestion.correctAnswers : [],
               marks: newQuestion.marks,
+              postureMarks: newQuestion.type === 'Video' ? newQuestion.postureMarks : 0,
+              voiceMarks: newQuestion.type === 'Video' ? newQuestion.voiceMarks : 0,
+              accuracyMarks: newQuestion.type === 'Video' ? newQuestion.accuracyMarks : 0,
+              evaluationType: newQuestion.evaluationType,
             },
           ],
         },
@@ -484,7 +509,19 @@ export default function ManageExamGroupPage() {
                       <Trash2 size={16} />
                     </button>
                   </div>
-                  <div className="p-6 pb-2 mt-4">
+                  <div className="p-6 pb-2 mt-4 flex flex-col gap-3">
+                    <select
+                      value={newQuestion.type}
+                      onChange={(e) =>
+                        setNewQuestion({ ...newQuestion, type: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-sm font-semibold focus:outline-none focus:border-blue-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
+                    >
+                      <option value="MCQ">Multiple Choice Question (MCQ)</option>
+                      <option value="CQ">Creative Question (CQ)</option>
+                      <option value="Video">Video Response</option>
+                    </select>
+
                     <textarea
                       required
                       rows={2}
@@ -500,61 +537,112 @@ export default function ManageExamGroupPage() {
                     />
                   </div>
 
-                  <div className="px-6 py-4 flex flex-col gap-3">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Options (Check to mark correct)
-                    </p>
-                    {newQuestion.options.map((option, index) => (
-                      <div key={index} className="flex items-center gap-3 group relative bg-slate-50 dark:bg-zinc-950 rounded-xl px-3 py-2 border border-slate-100 dark:border-zinc-800/50 hover:border-blue-200 dark:hover:border-blue-900/30 transition shadow-sm">
-                        <label className="flex items-center justify-center cursor-pointer relative">
+                  {newQuestion.type === 'MCQ' && (
+                    <div className="px-6 py-4 flex flex-col gap-3">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Options (Check to mark correct)
+                      </p>
+                      {newQuestion.options.map((option, index) => (
+                        <div key={index} className="flex items-center gap-3 group relative bg-slate-50 dark:bg-zinc-950 rounded-xl px-3 py-2 border border-slate-100 dark:border-zinc-800/50 hover:border-blue-200 dark:hover:border-blue-900/30 transition shadow-sm">
+                          <label className="flex items-center justify-center cursor-pointer relative">
+                            <input
+                              type="checkbox"
+                              checked={newQuestion.correctAnswers.includes(`option_${index}`)}
+                              onChange={() => toggleCorrectAnswer(index)}
+                              className="sr-only"
+                            />
+                            <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${
+                              newQuestion.correctAnswers.includes(`option_${index}`) 
+                              ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
+                              : 'bg-white border-slate-300 dark:bg-zinc-900 dark:border-zinc-700 hover:border-blue-400'
+                            }`}>
+                              {newQuestion.correctAnswers.includes(`option_${index}`) && <CheckCircle2 size={14} />}
+                            </div>
+                          </label>
+                          
                           <input
-                            type="checkbox"
-                            checked={newQuestion.correctAnswers.includes(`option_${index}`)}
-                            onChange={() => toggleCorrectAnswer(index)}
-                            className="sr-only"
+                            type="text"
+                            required={index < 2}
+                            value={option}
+                            onChange={(e) => {
+                              const newOptions = [...newQuestion.options];
+                              newOptions[index] = e.target.value;
+                              setNewQuestion({ ...newQuestion, options: newOptions });
+                            }}
+                            placeholder={`Option ${index + 1}`}
+                            className="flex-1 bg-transparent text-sm font-medium text-slate-700 dark:text-zinc-200 focus:outline-none placeholder:text-slate-300 dark:placeholder:text-zinc-700"
                           />
-                          <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${
-                            newQuestion.correctAnswers.includes(`option_${index}`) 
-                            ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
-                            : 'bg-white border-slate-300 dark:bg-zinc-900 dark:border-zinc-700 hover:border-blue-400'
-                          }`}>
-                            {newQuestion.correctAnswers.includes(`option_${index}`) && <CheckCircle2 size={14} />}
-                          </div>
-                        </label>
-                        
-                        <input
-                          type="text"
-                          required={index < 2}
-                          value={option}
-                          onChange={(e) => {
-                            const newOptions = [...newQuestion.options];
-                            newOptions[index] = e.target.value;
-                            setNewQuestion({ ...newQuestion, options: newOptions });
-                          }}
-                          placeholder={`Option ${index + 1}`}
-                          className="flex-1 bg-transparent text-sm font-medium text-slate-700 dark:text-zinc-200 focus:outline-none placeholder:text-slate-300 dark:placeholder:text-zinc-700"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveOption(index)}
-                          className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={handleAddOption}
-                      className="text-sm text-blue-600 font-bold self-start mt-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
-                    >
-                      <Plus size={16} /> Add Option
-                    </button>
-                  </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOption(index)}
+                            className="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={handleAddOption}
+                        className="text-sm text-blue-600 font-bold self-start mt-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+                      >
+                        <Plus size={16} /> Add Option
+                      </button>
+                    </div>
+                  )}
 
-                  <div className="bg-slate-50 dark:bg-zinc-950/50 border-t border-slate-100 dark:border-zinc-800 p-4 px-6 flex items-center justify-between">
+                  {newQuestion.type === 'Video' && (
+                    <div className="px-6 py-4 flex flex-col gap-4">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-bold text-slate-500 dark:text-zinc-400">Evaluation Mode</label>
+                        <select
+                          value={newQuestion.evaluationType}
+                          onChange={(e) => setNewQuestion({ ...newQuestion, evaluationType: e.target.value })}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-sm focus:outline-none focus:border-blue-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
+                        >
+                          <option value="AI">AI Evaluation</option>
+                          <option value="Manual">Manual Evaluation</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Posture Marks</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newQuestion.postureMarks}
+                            onChange={(e) => setNewQuestion({ ...newQuestion, postureMarks: Number(e.target.value) })}
+                            className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-sm focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Voice Marks</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newQuestion.voiceMarks}
+                            onChange={(e) => setNewQuestion({ ...newQuestion, voiceMarks: Number(e.target.value) })}
+                            className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-sm focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Accuracy Marks</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newQuestion.accuracyMarks}
+                            onChange={(e) => setNewQuestion({ ...newQuestion, accuracyMarks: Number(e.target.value) })}
+                            className="w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-sm focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-slate-50 dark:bg-zinc-950/50 border-t border-slate-100 dark:border-zinc-800 p-4 px-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Marks</span>
+                      <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Total Marks</span>
                       <input
                         type="number"
                         min="1"
@@ -967,86 +1055,19 @@ export default function ManageExamGroupPage() {
 
       {/* View Submission Modal */}
       {viewingSubmission && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between mb-4 shrink-0">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50">
-                  Submission: {viewingSubmission.user?.name}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Marks: {viewingSubmission.marksObtained} | Submitted: {new Date(viewingSubmission.submittedAt).toLocaleString()}
-                </p>
-              </div>
-              <button
-                onClick={() => setViewingSubmission(null)}
-                className="text-slate-400 hover:text-slate-600 p-2"
-              >
-                Close
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-4">
-              {viewingSubmission.answers && viewingSubmission.answers.length > 0 ? (
-                viewingSubmission.answers.map((ans: any, idx: number) => {
-                  const q = ans.question;
-                  if (!q) return null;
-                  return (
-                    <div key={idx} className="bg-slate-50 dark:bg-zinc-900/50 rounded-2xl border border-slate-200 dark:border-zinc-800 p-5 shadow-sm">
-                      <div className="flex items-start gap-3">
-                        <span className="text-xs font-bold text-slate-400 mt-0.5">{idx + 1}.</span>
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">{q.questionText}</p>
-                          <span className="text-[10px] text-slate-400 mt-1 inline-block">{ans.marksAwarded} / {q.marks} marks</span>
-                          <div className="mt-3 flex flex-col gap-2">
-                            {(q.options || []).map((opt: string, optIdx: number) => {
-                              const optionKey = `option_${optIdx}`;
-                              const isSelected = (ans.providedAnswer || []).includes(optionKey);
-                              const isCorrect = (q.correctAnswers || []).includes(optionKey);
-                              
-                              let btnClass = "border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300";
-                              if (isSelected && isCorrect) {
-                                btnClass = "border-green-500 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400";
-                              } else if (isSelected && !isCorrect) {
-                                btnClass = "border-red-500 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400";
-                              } else if (!isSelected && isCorrect) {
-                                btnClass = "border-green-500 bg-green-50/50 dark:bg-green-950/10 text-green-700 dark:text-green-400 border-dashed";
-                              }
-
-                              return (
-                                <div
-                                  key={optIdx}
-                                  className={`text-left text-xs px-4 py-3 rounded-xl border flex items-center gap-2 ${btnClass}`}
-                                >
-                                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? (isCorrect ? "border-green-500 bg-green-600" : "border-red-500 bg-red-600") : "border-slate-300 dark:border-zinc-700"}`}>
-                                    {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                                  </span>
-                                  {opt}
-                                  {isSelected && isCorrect && <CheckCircle2 size={14} className="ml-auto text-green-600" />}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-xs text-slate-500 text-center py-4">No answers found for this submission.</p>
-              )}
-            </div>
-            
-            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-800 flex justify-end shrink-0">
-              <button
-                onClick={() => setViewingSubmission(null)}
-                className="rounded-xl bg-slate-900 dark:bg-zinc-100 hover:bg-slate-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 px-6 py-2 text-xs font-bold transition"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExamGroupEvaluationView
+          submission={viewingSubmission}
+          onClose={() => setViewingSubmission(null)}
+          onEvaluated={() => {
+            // refresh submissions
+            api.get(`/exam-groups/${examGroupId}/submissions`).then(subRes => {
+              setSubmissions(subRes.data || []);
+              // update the current viewing submission as well
+              const updated = (subRes.data || []).find((s: any) => s.id === viewingSubmission.id);
+              if (updated) setViewingSubmission(updated);
+            });
+          }}
+        />
       )}
     </div>
   );

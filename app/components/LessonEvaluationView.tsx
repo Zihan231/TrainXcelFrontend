@@ -9,13 +9,15 @@ import { api } from "@/libs/api";
 import toast from "react-hot-toast";
 
 interface LessonEvaluationViewProps {
-  selectedLesson: any;
+  selectedLesson?: any;
   courseId: number | string;
   courseLessons?: any[];
   enrolledCount?: number;
+  standaloneExam?: any;
+  onClearStandalone?: () => void;
 }
 
-export function LessonEvaluationView({ selectedLesson, courseId, courseLessons = [], enrolledCount = 0 }: LessonEvaluationViewProps) {
+export function LessonEvaluationView({ selectedLesson, courseId, courseLessons = [], enrolledCount = 0, standaloneExam, onClearStandalone }: LessonEvaluationViewProps) {
   const [activeLesson, setActiveLesson] = useState<any>(selectedLesson);
   const [tests, setTests] = useState<any[]>([]);
   const [pendingCounts, setPendingCounts] = useState<Record<number, number>>({});
@@ -50,13 +52,15 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
   const [submittingEval, setSubmittingEval] = useState(false);
 
   useEffect(() => {
-    if (selectedLesson?.id) {
+    if (standaloneExam?.id) {
+      handleSelectTest(standaloneExam);
+    } else if (selectedLesson?.id) {
       setActiveLesson(selectedLesson);
     }
-  }, [selectedLesson?.id]);
+  }, [selectedLesson?.id, standaloneExam?.id]);
 
   useEffect(() => {
-    if (activeLesson?.id) {
+    if (activeLesson?.id && !standaloneExam?.id) {
       setSelectedTest(null);
       setSelectedSubmission(null);
       fetchLessonTests();
@@ -120,9 +124,8 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
     const initialAccFeedbacks: Record<number, string> = {};
 
     sub.answers.forEach((ans: any) => {
-      const isPending = sub.status === "Pending Evaluation";
-      
       if (ans.question.type === "CQ") {
+        const isPending = ans.marksAwarded === 0 && (!ans.evaluatorComment || ans.evaluatorComment.trim() === "");
         initialCqMarks[ans.id] = isPending ? "" : (ans.marksAwarded ?? "");
         initialCqComments[ans.id] = ans.evaluatorComment || "";
       } else if (ans.question.type === "Video") {
@@ -135,13 +138,15 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
           parsed = null;
         }
 
-        initialPosScores[ans.id] = isPending ? "" : (parsed?.postureScore ?? "");
+        const hasScores = parsed && parsed.postureScore !== undefined;
+
+        initialPosScores[ans.id] = hasScores ? parsed.postureScore : "";
         initialPosFeedbacks[ans.id] = parsed?.postureFeedback ?? "";
 
-        initialAttScores[ans.id] = isPending ? "" : (parsed?.attitudeScore ?? "");
+        initialAttScores[ans.id] = hasScores ? parsed.attitudeScore : "";
         initialAttFeedbacks[ans.id] = parsed?.attitudeFeedback ?? "";
 
-        initialAccScores[ans.id] = isPending ? "" : (parsed?.accuracyScore ?? "");
+        initialAccScores[ans.id] = hasScores ? parsed.accuracyScore : "";
         initialAccFeedbacks[ans.id] = parsed?.accuracyFeedback ?? "";
       }
     });
@@ -248,7 +253,9 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
       setSelectedSubmission(null);
 
       // Refresh tests and counts
-      await fetchLessonTests();
+      if (!standaloneExam) {
+        await fetchLessonTests();
+      }
       if (selectedTest) {
         const res = await api.get(`/tests/evaluations/pending?testId=${selectedTest.id}`);
         setSubmissions(res.data || []);
@@ -271,7 +278,7 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
   const totalSubPages = Math.max(1, Math.ceil(submissions.length / SUBS_PER_PAGE));
   const paginatedSubmissions = submissions.slice((subPage - 1) * SUBS_PER_PAGE, subPage * SUBS_PER_PAGE);
 
-  if (!activeLesson) {
+  if (!activeLesson && !standaloneExam) {
     return (
       <div className="p-10 text-center text-slate-400 text-xs bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800">
         No lessons found for this course. Add lessons first to enable evaluation.
@@ -279,7 +286,7 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
     );
   }
 
-  if (loadingTests) {
+  if (loadingTests && !standaloneExam) {
     return (
       <div className="p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-3 bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200/80 dark:border-zinc-800/80 shadow-sm">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
@@ -522,6 +529,8 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
                 const accuracyMax = ans.question.accuracyMarks ?? (ans.question.marks / 3);
                 const totalMax = postureMax + voiceMax + accuracyMax;
                 const currentTotal = Math.round(((Number(postureScores[ans.id]) || 0) + (Number(attitudeScores[ans.id]) || 0) + (Number(accuracyScores[ans.id]) || 0)) * 100) / 100;
+                
+                const isAiEvaluated = ans.evaluatedBy && ans.evaluatedBy.toUpperCase() === 'AI';
 
                 return (
                   <div key={ans.id} className="p-5 rounded-2xl border border-purple-100 dark:border-purple-950/60 bg-purple-50/20 dark:bg-purple-950/10 flex flex-col gap-5">
@@ -549,7 +558,7 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
                     {/* 3 CATEGORY INPUT FORM */}
                     <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-purple-100 dark:border-purple-900/40 flex flex-col gap-4">
                       <h5 className="text-xs font-extrabold text-slate-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <Award size={15} className="text-purple-600" /> Human Evaluator 3-Category Scoring
+                        <Award size={15} className="text-purple-600" /> {isAiEvaluated ? "AI Evaluator 3-Category Scoring (Read-Only)" : "Human Evaluator 3-Category Scoring"}
                       </h5>
 
                       {/* 1. Posture & Dress Code */}
@@ -568,14 +577,16 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
                               setPostureScores({ ...postureScores, [ans.id]: val });
                             }
                           }}
-                          className="w-20 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-blue-600 focus:outline-none"
+                          disabled={isAiEvaluated}
+                          className={`w-20 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-blue-600 focus:outline-none ${isAiEvaluated ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-zinc-800' : ''}`}
                         />
                         <input
                           type="text"
                           value={postureFeedbacks[ans.id] || ""}
                           onChange={(e) => setPostureFeedbacks({ ...postureFeedbacks, [ans.id]: e.target.value })}
                           placeholder="No feedback"
-                          className="flex-1 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-blue-600 focus:outline-none w-full"
+                          disabled={isAiEvaluated}
+                          className={`flex-1 p-2.5 border border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-blue-600 focus:outline-none w-full ${isAiEvaluated ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-zinc-800' : ''}`}
                         />
                       </div>
 
@@ -595,14 +606,16 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
                               setAttitudeScores({ ...attitudeScores, [ans.id]: val });
                             }
                           }}
-                          className="w-20 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-purple-600 focus:outline-none"
+                          disabled={isAiEvaluated}
+                          className={`w-20 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-purple-600 focus:outline-none ${isAiEvaluated ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-zinc-800' : ''}`}
                         />
                         <input
                           type="text"
                           value={attitudeFeedbacks[ans.id] || ""}
                           onChange={(e) => setAttitudeFeedbacks({ ...attitudeFeedbacks, [ans.id]: e.target.value })}
                           placeholder="No feedback"
-                          className="flex-1 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-purple-600 focus:outline-none w-full"
+                          disabled={isAiEvaluated}
+                          className={`flex-1 p-2.5 border border-purple-200 dark:border-purple-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-purple-600 focus:outline-none w-full ${isAiEvaluated ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-zinc-800' : ''}`}
                         />
                       </div>
 
@@ -622,14 +635,16 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
                               setAccuracyScores({ ...accuracyScores, [ans.id]: val });
                             }
                           }}
-                          className="w-20 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-emerald-600 focus:outline-none"
+                          disabled={isAiEvaluated}
+                          className={`w-20 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs font-bold focus:border-emerald-600 focus:outline-none ${isAiEvaluated ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-zinc-800' : ''}`}
                         />
                         <input
                           type="text"
                           value={accuracyFeedbacks[ans.id] || ""}
                           onChange={(e) => setAccuracyFeedbacks({ ...accuracyFeedbacks, [ans.id]: e.target.value })}
                           placeholder="No feedback"
-                          className="flex-1 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-emerald-600 focus:outline-none w-full"
+                          disabled={isAiEvaluated}
+                          className={`flex-1 p-2.5 border border-emerald-200 dark:border-emerald-800 rounded-xl bg-white dark:bg-zinc-900 text-xs focus:border-emerald-600 focus:outline-none w-full ${isAiEvaluated ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-zinc-800' : ''}`}
                         />
                       </div>
                     </div>
@@ -669,12 +684,22 @@ export function LessonEvaluationView({ selectedLesson, courseId, courseLessons =
     return (
       <div className="flex flex-col gap-6 animate-fadeIn">
         <div className="flex items-center justify-between">
-          <button
-            onClick={() => setSelectedTest(null)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 transition border border-slate-200 dark:border-zinc-700"
-          >
-            <ArrowLeft size={15} /> Back to Tests List
-          </button>
+          {!standaloneExam && (
+            <button
+              onClick={() => setSelectedTest(null)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 transition border border-slate-200 dark:border-zinc-700"
+            >
+              <ArrowLeft size={15} /> Back to Tests List
+            </button>
+          )}
+          {standaloneExam && onClearStandalone && (
+            <button
+              onClick={() => { setSelectedTest(null); onClearStandalone(); }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 transition border border-slate-200 dark:border-zinc-700"
+            >
+              <ArrowLeft size={15} /> Back to Course
+            </button>
+          )}
           <span className="text-xs text-slate-400 font-medium">
             Test: <strong className="text-slate-800 dark:text-zinc-100 font-bold">{selectedTest.title}</strong>
           </span>

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { api } from "@/libs/api";
 import toast from "react-hot-toast";
-import { CheckCircle, Clock, Loader2, AlertTriangle } from "lucide-react";
+import { CheckCircle, Clock, Loader2, AlertTriangle, Video, UploadCloud, X } from "lucide-react";
+import { WebcamRecorder } from "./WebcamRecorder";
 
 interface ExamGroupPlayerProps {
   examGroupId: number;
@@ -21,9 +22,21 @@ export function ExamGroupPlayer({
   onCancel,
 }: ExamGroupPlayerProps) {
   const [questions, setQuestions] = useState<any[]>([]);
-  const [answers, setAnswers] = useState<Record<number, string[]>>({});
+  const [answers, setAnswers] = useState<Record<number, any>>({});
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedVideoFiles, setSelectedVideoFiles] = useState<Record<number, File>>({});
+  const [recordingQuestionId, setRecordingQuestionId] = useState<number | null>(null);
+  const answersRef = React.useRef(answers);
+  const videoFilesRef = React.useRef(selectedVideoFiles);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    videoFilesRef.current = selectedVideoFiles;
+  }, [selectedVideoFiles]);
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -59,34 +72,88 @@ export function ExamGroupPlayer({
     return () => clearInterval(timer);
   }, [totalMins, submitted]);
 
-  const handleAutoSubmit = useCallback(async () => {
+  const submitLogic = async (auto = false) => {
     if (submitted) return;
-    const answerArray = Object.entries(answers).map(([questionId, providedAnswer]) => ({
-      questionId: Number(questionId),
-      providedAnswer,
-    }));
-    if (answerArray.length === 0) {
-      toast.error("No answers selected. Submitting empty exam.");
+    const currentAnswers = { ...answersRef.current };
+    const currentVideos = { ...videoFilesRef.current };
+
+    if (!auto && questions.length > 0) {
+      const missingAnswer = questions.some((q: any) => {
+        const ans = currentAnswers[q.id];
+        if (q.type === "MCQ") {
+          return !ans || !Array.isArray(ans) || ans.length === 0;
+        }
+        if (q.type === "CQ") {
+          return !ans || String(ans).trim() === "";
+        }
+        if (q.type === "Video") {
+          const hasSelectedLocal = currentVideos[q.id] !== undefined;
+          return (!ans || String(ans).trim() === "" || ans === "Uploading...") && !hasSelectedLocal;
+        }
+        return false;
+      });
+
+      if (missingAnswer) {
+        toast.error("Answering all questions (MCQ, CQ, and Video) is mandatory before submitting the exam.");
+        return;
+      }
     }
+
     try {
       setIsSubmitting(true);
+      if (!auto) toast.success("Submitting exam in the background...");
+
+      const finalAnswers = { ...currentAnswers };
+      const uploadKeys = Object.keys(currentVideos);
+      for (const qId of uploadKeys) {
+        const file = currentVideos[Number(qId)];
+        if (file) {
+          setAnswers(prev => ({ ...prev, [Number(qId)]: ["Uploading..."] }));
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await api.post('/tests/upload-test-video', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          if (res.data?.url) {
+            finalAnswers[Number(qId)] = [res.data.url];
+            setAnswers(prev => ({ ...prev, [Number(qId)]: [res.data.url] }));
+          } else {
+            throw new Error("Failed to upload video response.");
+          }
+        }
+      }
+
+      setSelectedVideoFiles({});
+
+      const answerArray = Object.entries(finalAnswers).map(([questionId, providedAnswer]) => ({
+        questionId: Number(questionId),
+        providedAnswer: Array.isArray(providedAnswer) ? providedAnswer : [String(providedAnswer)],
+      }));
+
+      if (auto && answerArray.length === 0) {
+        toast.error("No answers selected. Submitting empty exam.");
+      }
+
       const res = await api.post(`/exam-groups/${examGroupId}/submit`, { answers: answerArray });
       setResult(res.data);
       setSubmitted(true);
-      toast.success("Time is up! Exam auto-submitted.");
+      toast.success(auto ? "Time is up! Exam auto-submitted." : "Exam submitted successfully!");
       onComplete?.();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to auto-submit exam.");
+      toast.error(err.response?.data?.message || `Failed to ${auto ? "auto-submit" : "submit"} exam.`);
     } finally {
       setIsSubmitting(false);
     }
-  }, [answers, examGroupId, submitted, onComplete]);
+  };
+
+  const handleAutoSubmit = useCallback(() => submitLogic(true), [examGroupId, submitted, onComplete, questions]);
+  const handleSubmit = () => submitLogic(false);
 
   const toggleAnswer = (questionId: number, optionKey: string) => {
     setAnswers((prev) => {
-      const current = prev[questionId] || [];
+      const current = Array.isArray(prev[questionId]) ? prev[questionId] : [];
       if (current.includes(optionKey)) {
-        const next = current.filter((a) => a !== optionKey);
+        const next = current.filter((a: string) => a !== optionKey);
         if (next.length === 0) {
           const { [questionId]: _, ...rest } = prev;
           return rest;
@@ -97,23 +164,15 @@ export function ExamGroupPlayer({
     });
   };
 
-  const handleSubmit = async () => {
-    if (submitted) return;
-    const answerArray = Object.entries(answers).map(([questionId, providedAnswer]) => ({
-      questionId: Number(questionId),
-      providedAnswer,
-    }));
-    try {
-      setIsSubmitting(true);
-      const res = await api.post(`/exam-groups/${examGroupId}/submit`, { answers: answerArray });
-      setResult(res.data);
-      setSubmitted(true);
-      toast.success("Exam submitted successfully!");
-      onComplete?.();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to submit exam.");
-    } finally {
-      setIsSubmitting(false);
+  const handleTextAnswer = (questionId: number, text: string) => {
+    setAnswers(prev => ({ ...prev, [questionId]: [text] }));
+  };
+
+  const handleFileChange = (questionId: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setSelectedVideoFiles(prev => ({ ...prev, [questionId]: file }));
+      setAnswers(prev => ({ ...prev, [questionId]: [file.name] }));
     }
   };
 
@@ -180,26 +239,75 @@ export function ExamGroupPlayer({
                 <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-zinc-100 mb-2 leading-relaxed">{q.questionText}</p>
                 <span className="text-[10px] text-slate-400 mt-1 inline-block">{q.marks} marks</span>
                 <div className="mt-3 flex flex-col gap-2">
-                  {(q.options || []).map((opt: string, optIdx: number) => {
-                    const optionKey = `option_${optIdx}`;
-                    const selected = (answers[q.id] || []).includes(optionKey);
-                    return (
-                      <button
-                        key={optIdx}
-                        onClick={() => toggleAnswer(q.id, optionKey)}
-                        className={`text-left text-base px-5 py-4 rounded-xl border transition flex items-center gap-3 ${
-                          selected
-                            ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400"
-                            : "border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 text-slate-700 dark:text-zinc-300"
-                        }`}
-                      >
-                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selected ? "border-blue-500 bg-blue-600" : "border-slate-300 dark:border-zinc-700"}`}>
-                          {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                        </span>
-                        {opt}
-                      </button>
-                    );
-                  })}
+                  {q.type === 'MCQ' ? (
+                    (q.options || []).map((opt: string, optIdx: number) => {
+                      const optionKey = `option_${optIdx}`;
+                      const currentAnswers = Array.isArray(answers[q.id]) ? answers[q.id] : [];
+                      const selected = currentAnswers.includes(optionKey);
+                      return (
+                        <button
+                          key={optIdx}
+                          onClick={() => toggleAnswer(q.id, optionKey)}
+                          className={`text-left text-base px-5 py-4 rounded-xl border transition flex items-center gap-3 ${
+                            selected
+                              ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400"
+                              : "border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 text-slate-700 dark:text-zinc-300"
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selected ? "border-blue-500 bg-blue-600" : "border-slate-300 dark:border-zinc-700"}`}>
+                            {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </span>
+                          {opt}
+                        </button>
+                      );
+                    })
+                  ) : q.type === 'CQ' ? (
+                    <textarea
+                      value={(answers[q.id]?.[0]) || ""}
+                      onChange={(e) => handleTextAnswer(q.id, e.target.value)}
+                      placeholder="Type your answer here..."
+                      rows={4}
+                      className="w-full bg-white dark:bg-zinc-950 text-slate-800 dark:text-zinc-200 rounded-xl border border-slate-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition p-4 resize-none outline-none"
+                    />
+                  ) : q.type === 'Video' ? (
+                    <div className="bg-slate-50 dark:bg-zinc-950/50 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row gap-4 items-center">
+                      <div className="flex-1 flex flex-col sm:flex-row gap-3 w-full">
+                        <button
+                          onClick={() => setRecordingQuestionId(q.id)}
+                          className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl transition shadow-md w-full sm:w-auto"
+                        >
+                          <Video size={18} /> Record Video
+                        </button>
+                        <div className="relative w-full sm:w-auto flex-1 sm:flex-none flex">
+                          <input
+                            type="file"
+                            accept="video/*"
+                            id={`file-upload-${q.id}`}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => handleFileChange(q.id, e)}
+                          />
+                          <label
+                            htmlFor={`file-upload-${q.id}`}
+                            className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-slate-400 dark:hover:border-zinc-600 bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-300 font-bold py-3 px-6 rounded-xl transition cursor-pointer w-full text-center"
+                          >
+                            <UploadCloud size={18} /> Upload Video
+                          </label>
+                        </div>
+                      </div>
+                      <div className="w-full sm:w-auto text-center sm:text-right text-xs font-bold text-slate-500 dark:text-zinc-400">
+                        {answers[q.id]?.[0] ? (
+                          <div className="flex items-center justify-center sm:justify-end gap-1.5 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                            <CheckCircle size={14} /> 
+                            <span className="truncate max-w-[150px] sm:max-w-[200px]" title={answers[q.id]?.[0]}>
+                              {answers[q.id]?.[0]}
+                            </span>
+                          </div>
+                        ) : (
+                          "No video selected"
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -222,6 +330,19 @@ export function ExamGroupPlayer({
           {isSubmitting ? "Submitting..." : "Submit Exam"}
         </button>
       </div>
+
+      {recordingQuestionId && (
+        <WebcamRecorder 
+          onCancel={() => setRecordingQuestionId(null)}
+          onUpload={(file) => {
+            if (recordingQuestionId) {
+              setSelectedVideoFiles(prev => ({ ...prev, [recordingQuestionId]: file }));
+              setAnswers(prev => ({ ...prev, [recordingQuestionId]: [file.name] }));
+              setRecordingQuestionId(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
