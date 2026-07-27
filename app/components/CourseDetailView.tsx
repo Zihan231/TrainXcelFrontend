@@ -158,8 +158,11 @@ export function CourseDetailView({
   const [finalExamsLoading, setFinalExamsLoading] = useState(false);
   const [selectedFinalExam, setSelectedFinalExam] = useState<any | null>(null);
   const [evaluatingFinalExam, setEvaluatingFinalExam] = useState<any | null>(null);
+  const [deleteStandaloneExamId, setDeleteStandaloneExamId] = useState<number | null>(null);
+  const [deleteFinalExamId, setDeleteFinalExamId] = useState<number | null>(null);
   // Per-exam submission status for student (examId -> submission | null)
   const [finalExamSubmissions, setFinalExamSubmissions] = useState<Record<number, any>>({});
+  const [finalExamSubmissionsLoaded, setFinalExamSubmissionsLoaded] = useState(false);
 
   const [isNextLessonTransition, setIsNextLessonTransition] = useState(false);
 
@@ -206,9 +209,10 @@ export function CourseDetailView({
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
   const [remainingSubmissions, setRemainingSubmissions] = useState(0);
   const [isMarksLoading, setIsMarksLoading] = useState(false);
-  const [marksExamType, setMarksExamType] = useState<"lesson" | "standalone">("lesson");
+  const [marksExamType, setMarksExamType] = useState<"lesson" | "standalone" | "final">("lesson");
   const [marksLesson, setMarksLesson] = useState<any | null>(null);
   const [marksStandaloneExam, setMarksStandaloneExam] = useState<any | null>(null);
+  const [marksFinalExam, setMarksFinalExam] = useState<any | null>(null);
   const [reviewStudentSubmission, setReviewStudentSubmission] = useState<any | null>(null);
   const [isReviewLoading, setIsReviewLoading] = useState<number | null>(null);
 
@@ -315,18 +319,25 @@ export function CourseDetailView({
   }, [courseId]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Final Exams (testType=Course)
+  // Final Exams (testType=Course) - auto-refresh every 15s for admin/employee
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!courseId) return;
-    setFinalExamsLoading(true);
-    api.get(`/tests/course/${courseId}`)
-      .then(res => setFinalExams(res.data || []))
-      .catch(() => setFinalExams([]))
-      .finally(() => setFinalExamsLoading(false));
-  }, [courseId]);
+    const fetchFinalExams = () => {
+      api.get(`/tests/course/${courseId}`)
+        .then(res => setFinalExams(res.data || []))
+        .catch(() => setFinalExams([]));
+    };
+    fetchFinalExams();
+    
+    // Poll every 15 seconds for admin/employee to show newly created exams
+    if (isAdminOrEmployee) {
+      const intervalId = setInterval(fetchFinalExams, 15000);
+      return () => clearInterval(intervalId);
+    }
+  }, [courseId, isAdminOrEmployee]);
 
-  // Fetch student submission status for each final exam
+  // Fetch student submission status for each final exam (auto-refresh every 15s)
   useEffect(() => {
     if (isAdminOrEmployee || finalExams.length === 0) return;
     const fetchStatuses = async () => {
@@ -340,8 +351,19 @@ export function CourseDetailView({
         }
       }));
       setFinalExamSubmissions(results);
+      // Only set loaded to true after first successful fetch
+      // On subsequent polls, keep it true to avoid UI blinking
     };
-    fetchStatuses();
+    
+    // Initial fetch - set loaded only on first completion
+    fetchStatuses().then(() => {
+      setFinalExamSubmissionsLoaded(true);
+    });
+    
+    // Auto-refresh every 15 seconds to detect evaluation changes
+    const intervalId = setInterval(fetchStatuses, 15000);
+    
+    return () => clearInterval(intervalId);
   }, [finalExams, isAdminOrEmployee]);
 
   useEffect(() => {
@@ -377,8 +399,12 @@ export function CourseDetailView({
         const lesson = marksLesson || selectedLesson;
         if (!lesson) { setStudentMarks([]); setRemainingSubmissions(0); return; }
         res = await api.get(`/tests/lesson/${lesson.id}/submissions`);
-      } else {
+      } else if (marksExamType === "standalone") {
         const exam = marksStandaloneExam || (standaloneExams.length > 0 ? standaloneExams[0] : null);
+        if (!exam) { setStudentMarks([]); setRemainingSubmissions(0); return; }
+        res = await api.get(`/tests/test/${exam.id}/submissions`);
+      } else {
+        const exam = marksFinalExam || (finalExams.length > 0 ? finalExams[0] : null);
         if (!exam) { setStudentMarks([]); setRemainingSubmissions(0); return; }
         res = await api.get(`/tests/test/${exam.id}/submissions`);
       }
@@ -392,13 +418,13 @@ export function CourseDetailView({
     } finally {
       setIsMarksLoading(false);
     }
-  }, [marksExamType, marksLesson, selectedLesson, marksStandaloneExam, standaloneExams]);
+  }, [marksExamType, marksLesson, selectedLesson, marksStandaloneExam, marksFinalExam, standaloneExams, finalExams]);
 
   useEffect(() => {
     if (courseDetailsTab === "student-marks") {
       loadStudentMarks();
     }
-  }, [courseDetailsTab, loadStudentMarks, marksLesson, marksStandaloneExam, marksExamType]);
+  }, [courseDetailsTab, loadStudentMarks, marksLesson, marksStandaloneExam, marksFinalExam, marksExamType]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Admin leaderboard
@@ -656,6 +682,22 @@ export function CourseDetailView({
       toast.error("Failed to load submission details.");
     } finally {
       setIsReviewLoading(null);
+    }
+  };
+
+  const handleDeleteTest = async (testId: number, type: 'standalone' | 'final') => {
+    try {
+      await api.delete(`/tests/${testId}`);
+      toast.success(`${type === 'standalone' ? 'Standalone exam' : 'Final exam'} deleted successfully.`);
+      if (type === 'standalone') {
+        const res = await api.get(`/tests/standalone/${courseId}`);
+        setStandaloneExams(res.data || []);
+      } else {
+        const res = await api.get(`/tests/course/${courseId}`);
+        setFinalExams(res.data || []);
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || `Failed to delete ${type === 'standalone' ? 'standalone exam' : 'final exam'}.`);
     }
   };
 
@@ -1103,6 +1145,7 @@ export function CourseDetailView({
                           <div className="flex gap-2 mb-4 bg-slate-100 dark:bg-zinc-800/50 p-1 rounded-xl w-fit">
                             <button onClick={() => setMarksExamType("lesson")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${marksExamType === "lesson" ? "bg-white dark:bg-zinc-700 shadow-sm text-slate-800 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700"}`}>Lesson Exams</button>
                             <button onClick={() => setMarksExamType("standalone")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${marksExamType === "standalone" ? "bg-white dark:bg-zinc-700 shadow-sm text-slate-800 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700"}`}>Standalone Exams</button>
+                            <button onClick={() => setMarksExamType("final")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${marksExamType === "final" ? "bg-white dark:bg-zinc-700 shadow-sm text-slate-800 dark:text-zinc-100" : "text-slate-500 hover:text-slate-700"}`}>Final Exam</button>
                           </div>
 
                           <div className="mb-4">
@@ -1113,11 +1156,18 @@ export function CourseDetailView({
                                   {courseLessons.map((l: any) => <option key={l.lessonId} value={l.lessonId}>{l.title}</option>)}
                                 </select>
                               </>
-                            ) : (
+                            ) : marksExamType === "standalone" ? (
                               <>
                                 <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Standalone Exam</label>
                                 <select value={marksStandaloneExam?.id || (standaloneExams.length > 0 ? standaloneExams[0].id : "")} onChange={e => { const val = e.target.value; if (val === "") { setMarksStandaloneExam(null); } else { const found = standaloneExams.find((l: any) => String(l.id) === val); setMarksStandaloneExam(found || null); } }} className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
                                   {standaloneExams.map((l: any) => <option key={l.id} value={l.id}>{l.title}</option>)}
+                                </select>
+                              </>
+                            ) : (
+                              <>
+                                <label className="text-xs font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider mb-1.5 block">Select Final Exam</label>
+                                <select value={marksFinalExam?.id || (finalExams.length > 0 ? finalExams[0].id : "")} onChange={e => { const val = e.target.value; if (val === "") { setMarksFinalExam(null); } else { const found = finalExams.find((l: any) => String(l.id) === val); setMarksFinalExam(found || null); } }} className="w-full max-w-xs text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                                  {finalExams.map((l: any) => <option key={l.id} value={l.id}>{l.title}</option>)}
                                 </select>
                               </>
                             )}
@@ -1126,6 +1176,8 @@ export function CourseDetailView({
                             <p className="text-xs text-slate-400">Please select a lesson from the playlist to view student marks.</p>
                           ) : marksExamType === "standalone" && standaloneExams.length === 0 ? (
                             <p className="text-xs text-slate-400">No standalone exams found.</p>
+                          ) : marksExamType === "final" && finalExams.length === 0 ? (
+                            <p className="text-xs text-slate-400">No final exams found.</p>
                           ) : isMarksLoading ? (
                             <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading marks...</span></div>
                           ) : studentMarks.length === 0 ? (
@@ -1256,9 +1308,14 @@ export function CourseDetailView({
                           <div className="flex items-center justify-between mt-1.5">
                             <span className="flex items-center gap-0.5 text-[9px] text-amber-600 font-bold dark:text-amber-500"><Award size={10} /> Timed Exam</span>
                             {isAdminOrEmployee && (
-                              <button onClick={(e) => { e.stopPropagation(); setEvaluatingStandaloneExam(exam); }} className="px-2 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg border border-blue-100 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800 transition">
-                                Evaluate
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button onClick={(e) => { e.stopPropagation(); setEvaluatingStandaloneExam(exam); }} className="px-2 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg border border-blue-100 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800 transition">
+                                  Evaluate
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); setDeleteStandaloneExamId(exam.id); }} className="p-1.5 text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 rounded-lg border border-rose-100 dark:border-rose-900/40 transition" title="Delete standalone exam">
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
                             )}
                           </div>
                           {(exam.startTime || exam.endTime) && (
@@ -1329,6 +1386,13 @@ export function CourseDetailView({
                                   >
                                     Evaluate
                                   </button>
+                                  <button
+                                    onClick={() => setDeleteFinalExamId(exam.id)}
+                                    className="p-1.5 text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 rounded-lg border border-rose-100 dark:border-rose-900/40 transition"
+                                    title="Delete final exam"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
                                 </div>
                               )}
 
@@ -1352,11 +1416,23 @@ export function CourseDetailView({
                                   {studentSubmission.marksObtained !== undefined && (
                                     <span className="ml-1 text-[10px] text-slate-500 dark:text-zinc-400">Score: <strong className="text-slate-800 dark:text-zinc-100">{studentSubmission.marksObtained}</strong></span>
                                   )}
+                                  {studentSubmission.status === "Pending Evaluation" ? (
+                                    <span className="ml-1 px-2 py-0.5 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 text-[9px] font-bold rounded-lg bg-amber-50 dark:bg-amber-950/20">
+                                      Pending
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => setSelectedFinalExam(exam)}
+                                      className="ml-1 px-2 py-0.5 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-[9px] font-bold rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition"
+                                    >
+                                      Review Answers
+                                    </button>
+                                  )}
                                 </div>
                               )}
 
-                              {/* Student: take exam */}
-                              {!isAdminOrEmployee && isUnlocked && !studentSubmission && (
+                              {/* Student: take exam - only show when submissions have been loaded */}
+                              {!isAdminOrEmployee && isUnlocked && !studentSubmission && finalExamSubmissionsLoaded && (
                                 <button
                                   onClick={() => setSelectedFinalExam(exam)}
                                   className="mt-2 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition shadow-sm"
@@ -1668,6 +1744,36 @@ export function CourseDetailView({
           await confirmState.onConfirm();
         }}
         onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
+      />
+
+      {/* Delete Standalone Exam Confirmation */}
+      <ConfirmModal
+        isOpen={deleteStandaloneExamId !== null}
+        title="Delete Standalone Exam"
+        message="Are you sure you want to delete this standalone exam? This action cannot be undone. All associated questions and student submissions will be permanently removed."
+        confirmText="Delete Exam"
+        onConfirm={async () => {
+          if (deleteStandaloneExamId !== null) {
+            await handleDeleteTest(deleteStandaloneExamId, 'standalone');
+            setDeleteStandaloneExamId(null);
+          }
+        }}
+        onCancel={() => setDeleteStandaloneExamId(null)}
+      />
+
+      {/* Delete Final Exam Confirmation */}
+      <ConfirmModal
+        isOpen={deleteFinalExamId !== null}
+        title="Delete Final Exam"
+        message="Are you sure you want to delete this final exam? This action cannot be undone. All associated questions and student submissions will be permanently removed."
+        confirmText="Delete Exam"
+        onConfirm={async () => {
+          if (deleteFinalExamId !== null) {
+            await handleDeleteTest(deleteFinalExamId, 'final');
+            setDeleteFinalExamId(null);
+          }
+        }}
+        onCancel={() => setDeleteFinalExamId(null)}
       />
 
       {/* Standalone Exam Evaluation Modal */}

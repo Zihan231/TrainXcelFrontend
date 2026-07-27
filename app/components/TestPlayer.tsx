@@ -87,7 +87,7 @@ export function TestPlayer({
   const [reviewSubmission, setReviewSubmission] = useState<any | null>(null);
   const [aiFeedbackData, setAiFeedbackData] = useState<any | null>(null);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
-  const [examStatus, setExamStatus] = useState<'scheduled' | 'active' | 'completed'>('active');
+  const [examStatus, setExamStatus] = useState<'scheduled' | 'active' | 'completed'>('completed');
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const answersRef = React.useRef(answers);
 
@@ -145,6 +145,13 @@ export function TestPlayer({
       const now = new Date();
       const start = externalTest.startTime ? new Date(externalTest.startTime) : null;
       const end = externalTest.endTime ? new Date(externalTest.endTime) : null;
+
+      // If no time constraints, mark as active (user can freely answer)
+      if (!start && !end) {
+        setExamStatus('active');
+        setTimeRemaining(0);
+        return;
+      }
 
       if (start && now < start) {
         setExamStatus('scheduled');
@@ -823,7 +830,7 @@ export function TestPlayer({
 
                                 {scriptMode === "file" ? (
                                   <div className="flex flex-col gap-1">
-                                    <input
+                                     <input
                                       type="file"
                                       accept=".pdf,.docx,.ppt,.pptx"
                                       onChange={handleScriptFileChange}
@@ -960,7 +967,8 @@ export function TestPlayer({
   // ─── LEARNER: taking a test ──────────────────────────────────────────────────
   if (activeTest) {
     const hasTaken = !!submissions[activeTest.id];
-    const isStandaloneActive = externalTest && externalTest.id === activeTest.id && examStatus === 'active';
+    const hasTimeConstraint = externalTest && externalTest.id === activeTest.id && (externalTest.startTime || externalTest.endTime);
+    const isStandaloneActive = hasTimeConstraint && examStatus === 'active';
     const isUploadingVideo = Object.values(answers).some((val) => val === "Uploading...");
 
     return (
@@ -977,7 +985,7 @@ export function TestPlayer({
               Total Marks: {activeTest.questions.reduce((sum: number, q: any) => sum + q.marks, 0)} points
             </span>
           </div>
-          {isStandaloneActive && (
+          {hasTimeConstraint && isStandaloneActive && (
             <span className="flex items-center gap-1.5 text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg dark:bg-red-950/20 dark:text-red-400 self-start sm:self-center">
               <Clock size={14} /> {formatTimeRemaining(timeRemaining)}
             </span>
@@ -1448,7 +1456,9 @@ export function TestPlayer({
           <div className="flex flex-col gap-4">
             {tests.map(test => {
               const hasTaken = !!submissions[test.id];
+              const submissionLoaded = submissions[test.id] !== undefined;
               const isStandalone = !!externalTest && externalTest.id === test.id;
+              const standaloneHasTimeConstraint = isStandalone && (externalTest.startTime || externalTest.endTime);
               return (
                 <div key={test.id} className="p-4 rounded-xl border border-slate-200 flex flex-col gap-3 bg-slate-50 dark:bg-zinc-800/40 dark:border-zinc-700">
                   <div className="flex justify-between items-start gap-3">
@@ -1469,21 +1479,21 @@ export function TestPlayer({
                         {submissions[test.id].status === "Pending Evaluation" ? "Pending Evaluation" : "Submitted"}
                       </span>
                     )}
-                    {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
+                    {standaloneHasTimeConstraint && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400">
                         Scheduled
                       </span>
                     )}
-                    {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'completed' && (
+                    {standaloneHasTimeConstraint && !hasTaken && !submittingTestIds[test.id] && examStatus === 'completed' && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md text-rose-600 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400">
                         Ended
                       </span>
                     )}
                   </div>
-                  {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
+                  {standaloneHasTimeConstraint && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
                     <p className="text-xs text-slate-500">Starts in {formatTimeRemaining(timeRemaining)}</p>
                   )}
-                  {isStandalone && !hasTaken && !submittingTestIds[test.id] && examStatus === 'active' && (
+                  {standaloneHasTimeConstraint && !hasTaken && !submittingTestIds[test.id] && examStatus === 'active' && (
                     <p className="text-xs text-blue-600 font-semibold">Time remaining: {formatTimeRemaining(timeRemaining)}</p>
                   )}
                   {hasTaken && !submittingTestIds[test.id] && submissions[test.id].status === "Evaluated" && (() => {
@@ -1505,7 +1515,7 @@ export function TestPlayer({
                         Uploading &amp; Submitting...
                       </div>
                     ) : (
-                      !hasTaken && !(isStandalone && examStatus !== 'active') && (
+                      !hasTaken && submissionLoaded && !(standaloneHasTimeConstraint && examStatus !== 'active') && (
                         <button 
                           onClick={() => handleStartTest(test)} 
                           disabled={isStandalone && examStatus === 'scheduled'}
@@ -1515,7 +1525,7 @@ export function TestPlayer({
                         </button>
                       )
                     )}
-                    {hasTaken && submissions[test.id].status !== "Pending Evaluation" && (() => {
+                    {hasTaken && (() => {
                       const hasVideo = test.questions.some((q: any) => q.type === "Video");
                       const videoAns = submissions[test.id].answers?.find((a: any) => a.question.type === "Video");
                       return (
