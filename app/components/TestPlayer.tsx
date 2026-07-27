@@ -127,8 +127,10 @@ export function TestPlayer({
         (async () => {
           try {
             const sRes = await api.get(`/tests/${externalTest.id}/my-submission`);
-            setSubmissions(prev => ({ ...prev, [externalTest.id]: sRes.data }));
-          } catch {}
+            setSubmissions(prev => ({ ...prev, [externalTest.id]: sRes.data || null }));
+          } catch {
+            setSubmissions(prev => ({ ...prev, [externalTest.id]: null }));
+          }
         })();
       }
     } else {
@@ -196,16 +198,18 @@ export function TestPlayer({
       const res = await api.get(`/tests/lesson/${lessonId}`);
       setTests(res.data);
 
-      if (!isAdmin) {
-        const subs: Record<number, any> = {};
-        await Promise.all(res.data.map(async (t: any) => {
-          try {
-            const sRes = await api.get(`/tests/${t.id}/my-submission`);
-            if (sRes.data) subs[t.id] = sRes.data;
-          } catch { /* ignore */ }
-        }));
-        setSubmissions(subs);
-      }
+    if (!isAdmin) {
+      const subs: Record<number, any> = {};
+      await Promise.all(res.data.map(async (t: any) => {
+        try {
+          const sRes = await api.get(`/tests/${t.id}/my-submission`);
+          subs[t.id] = sRes.data || null;
+        } catch { 
+          subs[t.id] = null;
+        }
+      }));
+      setSubmissions(subs);
+    }
     } catch {
       setError("Failed to load tests.");
     } finally {
