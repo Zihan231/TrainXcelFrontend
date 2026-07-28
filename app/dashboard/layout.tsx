@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams, usePathname } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -225,6 +225,24 @@ export default function DashboardLayout({
   
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
+
   const openEditModal = async () => {
     setIsDropdownOpen(false);
     setIsEditModalOpen(true);
@@ -315,11 +333,8 @@ export default function DashboardLayout({
               <div className="h-6 w-px bg-slate-200 dark:bg-zinc-700"></div>
               
               {/* Profile Avatar Clickable Area */}
-              <div className="relative">
-                <div 
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="flex cursor-pointer items-center gap-3 hover:opacity-85 select-none"
-                >
+               <div className="relative" ref={dropdownRef}>
+                 <div onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }} className="flex cursor-pointer items-center gap-3 hover:opacity-85 select-none">
                   <div className="text-right hidden sm:block">
                     <p className="text-sm font-semibold text-slate-900 dark:text-zinc-50">
                       {name}
@@ -563,3 +578,10 @@ function NavItem({
     </Link>
   );
 }
+
+
+
+
+
+
+
