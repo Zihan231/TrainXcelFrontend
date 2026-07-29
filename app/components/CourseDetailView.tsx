@@ -162,6 +162,7 @@ export function CourseDetailView({
   const [evaluatingFinalExam, setEvaluatingFinalExam] = useState<any | null>(null);
   const [deleteStandaloneExamId, setDeleteStandaloneExamId] = useState<number | null>(null);
   const [deleteFinalExamId, setDeleteFinalExamId] = useState<number | null>(null);
+  const [allTestsLessonFilterId, setAllTestsLessonFilterId] = useState<number | null>(null);
   // Per-exam submission status for student (examId -> submission | null)
   const [finalExamSubmissions, setFinalExamSubmissions] = useState<Record<number, any>>({});
   const [finalExamSubmissionsLoaded, setFinalExamSubmissionsLoaded] = useState(false);
@@ -1021,7 +1022,19 @@ export function CourseDetailView({
                       {courseDetailsTab === "all-tests" && (
                         <div className="flex flex-col gap-6">
                           <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
-                            <div><h4 className="font-bold text-slate-900 dark:text-zinc-50 text-sm">All Tests</h4><p className="text-xs text-slate-500 dark:text-zinc-400">Manage lesson tests and standalone exams for this course.</p></div>
+                            <div className="flex flex-col gap-2">
+                              <div><h4 className="font-bold text-slate-900 dark:text-zinc-50 text-sm">All Tests</h4><p className="text-xs text-slate-500 dark:text-zinc-400">Manage lesson tests and standalone exams for this course.</p></div>
+                              {courseLessons.length > 0 && (
+                                <select
+                                  value={allTestsLessonFilterId ?? ""}
+                                  onChange={e => setAllTestsLessonFilterId(e.target.value ? Number(e.target.value) : null)}
+                                  className="text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                                >
+                                  <option value="">Select a lesson...</option>
+                                  {courseLessons.map(l => <option key={l.id} value={String(l.id)}>{l.lessonId} - {l.title}</option>)}
+                                </select>
+                              )}
+                            </div>
                             <div className="flex items-center gap-2">
                               <button type="button" onClick={() => setCourseDetailsTab("ai-test")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm">
                                 <Sparkles size={14} /> AI Test Builder
@@ -1036,15 +1049,15 @@ export function CourseDetailView({
                               <TestBuilder
                                 courseId={course.id}
                                 lessons={courseLessons}
-                                initialLessonId={selectedLesson?.id}
+                                initialLessonId={allTestsLessonFilterId ?? selectedLesson?.id}
                                 onSuccess={async (createdForLessonId?: number) => {
                                   setShowAddTestForm(false);
                                   const freshLessons = await loadCourseLessons(course.courseId);
                                   if (createdForLessonId && freshLessons?.length) {
                                     const targetLesson = freshLessons.find((l: any) => l.id === createdForLessonId);
-                                    if (targetLesson) { setSelectedLesson(targetLesson); setShowTestPlayer(true); }
-                                  } else if (selectedLesson) {
-                                    try { const res = await api.get(`/tests/lesson/${selectedLesson.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
+                                    if (targetLesson) { setAllTestsLessonFilterId(targetLesson.id); }
+                                  } else if (allTestsLessonFilterId) {
+                                    try { const res = await api.get(`/tests/lesson/${allTestsLessonFilterId}`); setHasTests(res.data && res.data.length > 0); } catch {}
                                   }
                                   try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
                                   try { const res = await api.get(`/tests/course/${course.courseId}`); setFinalExams(res.data || []); } catch {}
@@ -1052,15 +1065,17 @@ export function CourseDetailView({
                               />
                             </div>
                           )}
-                          {selectedLesson && !showAddTestForm && (
-                            <TestPlayer
-                              lessonId={selectedLesson.id}
-                              isAdmin={true}
-                              hasNextLesson={!!nextLesson}
-                              onNextLesson={() => { if (nextLesson) triggerNextLesson(nextLesson); }}
-                              onSuccess={async () => { await loadCourseLessons(course.courseId); }}
-                              onCancel={() => setShowTestPlayer(false)}
-                            />
+                          {!showAddTestForm && allTestsLessonFilterId && (
+                            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 p-4">
+                              <TestPlayer
+                                lessonId={allTestsLessonFilterId}
+                                isAdmin={true}
+                                hasNextLesson={false}
+                                onNextLesson={() => {}}
+                                onSuccess={async () => { await loadCourseLessons(course.courseId); }}
+                                onCancel={() => setAllTestsLessonFilterId(null)}
+                              />
+                            </div>
                           )}
                         </div>
                       )}
