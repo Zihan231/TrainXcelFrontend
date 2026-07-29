@@ -3271,6 +3271,46 @@ function DashboardPageContent() {
     );
   };
 
+  const [showResetPassForm, setShowResetPassForm] = useState(false);
+  const [resetPassForm, setResetPassForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [resetPassShow, setResetPassShow] = useState({ current: false, new: false, confirm: false });
+  const [resetPassError, setResetPassError] = useState('');
+  const [resetPassSuccess, setResetPassSuccess] = useState('');
+  const [resetPassSubmitting, setResetPassSubmitting] = useState(false);
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetPassError('');
+    setResetPassSuccess('');
+
+    if (!resetPassForm.currentPassword || !resetPassForm.newPassword || !resetPassForm.confirmPassword) {
+      setResetPassError('All password fields are required.');
+      return;
+    }
+    if (resetPassForm.newPassword.length < 6) {
+      setResetPassError('New password must be at least 6 characters long.');
+      return;
+    }
+    if (resetPassForm.newPassword !== resetPassForm.confirmPassword) {
+      setResetPassError('New passwords do not match.');
+      return;
+    }
+
+    setResetPassSubmitting(true);
+    try {
+      await api.patch('/auth/reset-password', {
+        currentPassword: resetPassForm.currentPassword,
+        newPassword: resetPassForm.newPassword,
+      });
+      setResetPassSuccess('Password changed successfully.');
+      setResetPassForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err: any) {
+      setResetPassError(err.response?.data?.message || 'Failed to reset password. Please try again.');
+    } finally {
+      setResetPassSubmitting(false);
+    }
+  };
+
   const renderSettings = () => {
     return (
       <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
@@ -3297,6 +3337,51 @@ function DashboardPageContent() {
               <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mt-0.5">{role}</p>
             </div>
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-zinc-800 dark:bg-[#121212] shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-900 dark:text-zinc-50">Reset Password</h3>
+            <button type="button" onClick={() => { setShowResetPassForm(v => !v); setResetPassError(''); setResetPassSuccess(''); }} className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition">
+              {showResetPassForm ? 'Cancel' : 'Change Password'}
+            </button>
+          </div>
+          {showResetPassForm && (
+            <div className="mt-4 animate-fadeIn">
+              {resetPassSuccess && (
+                <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950/30 dark:text-green-400">{resetPassSuccess}</div>
+              )}
+              {resetPassError && (
+                <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{resetPassError}</div>
+              )}
+              <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-500">Current Password</label>
+                  <div className="relative">
+                    <input type={resetPassShow.current ? 'text' : 'password'} value={resetPassForm.currentPassword} onChange={e => setResetPassForm(f => ({ ...f, currentPassword: e.target.value }))} placeholder="Enter current password" className="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 pr-10 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-700 dark:text-zinc-100" />
+                    <button type="button" onClick={() => setResetPassShow(s => ({ ...s, current: !s.current }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300">{resetPassShow.current ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-500">New Password</label>
+                  <div className="relative">
+                    <input type={resetPassShow.new ? 'text' : 'password'} value={resetPassForm.newPassword} onChange={e => setResetPassForm(f => ({ ...f, newPassword: e.target.value }))} placeholder="At least 6 characters" className="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 pr-10 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-700 dark:text-zinc-100" />
+                    <button type="button" onClick={() => setResetPassShow(s => ({ ...s, new: !s.new }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300">{resetPassShow.new ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-500">Confirm New Password</label>
+                  <div className="relative">
+                    <input type={resetPassShow.confirm ? 'text' : 'password'} value={resetPassForm.confirmPassword} onChange={e => setResetPassForm(f => ({ ...f, confirmPassword: e.target.value }))} placeholder="Re-enter new password" className="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 pr-10 text-sm focus:border-blue-600 focus:outline-none dark:border-zinc-700 dark:text-zinc-100" />
+                    <button type="button" onClick={() => setResetPassShow(s => ({ ...s, confirm: !s.confirm }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300">{resetPassShow.confirm ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                  </div>
+                </div>
+                <button type="submit" disabled={resetPassSubmitting} className="self-start flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:opacity-70">
+                  {resetPassSubmitting ? <><Loader2 size={14} className="animate-spin" /> Updating...</> : 'Update Password'}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
     );
