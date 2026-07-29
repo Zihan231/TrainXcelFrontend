@@ -936,13 +936,13 @@ export function CourseDetailView({
                 {isAdminOrEmployee && (
                   <div className="flex flex-col gap-4">
                     <div className="flex border-b border-slate-200 dark:border-zinc-800 overflow-x-auto">
-                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "ai-test", "leaderboard"] as const).map(tab => (
+                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard"] as const).map(tab => (
                         <button
                           key={tab}
                           onClick={() => setCourseDetailsTab(tab)}
                           className={`pb-3 text-sm font-semibold px-4 whitespace-nowrap transition ${courseDetailsTab === tab ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
                         >
-                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : tab === "ai-test" ? "AI Test Builder" : "Leaderboard"}
+                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : "Leaderboard"}
                         </button>
                       ))}
                     </div>
@@ -1072,6 +1072,7 @@ export function CourseDetailView({
                             courseId={course.id}
                             lessons={courseLessons}
                             initialLessonId={selectedLesson?.id}
+                            onBack={() => setCourseDetailsTab("all-tests")}
                             onSuccess={async () => {
                               await loadCourseLessons(course.courseId);
                               try { const res = await api.get(`/tests/lesson/${selectedLesson?.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
