@@ -4016,17 +4016,29 @@ function DashboardPageContent() {
                               <p className="text-slate-500 text-xs font-bold mb-1">Student Answer:</p>
                               <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
                             </div>
-                            {ans.evaluatorComment && (
-                              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
-                                <div className="flex items-center justify-between mb-2">
-                                  <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
-                                  <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                                    Reviewed by Invigilator
-                                  </span>
+                            {(() => {
+                              const isAiCq = ans.evaluatedBy === 'AI';
+                              let cqFeedback: { marksAwarded?: number; feedback?: string } | null = null;
+                              if (ans.evaluatorComment) {
+                                try { cqFeedback = JSON.parse(ans.evaluatorComment); } catch (e) {}
+                              }
+                              if (!cqFeedback || typeof cqFeedback !== 'object' || !cqFeedback.feedback) {
+                                cqFeedback = { feedback: ans.evaluatorComment };
+                              }
+                              return (
+                                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-blue-600 dark:text-blue-400 text-xs font-bold">
+                                      {isAiCq ? 'AI Feedback:' : 'Evaluator Comment:'}
+                                    </p>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isAiCq ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'}`}>
+                                      {isAiCq ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
+                                    </span>
+                                  </div>
+                                  <p className="text-blue-800 dark:text-blue-300 whitespace-pre-wrap">{cqFeedback.feedback || "No feedback comments provided yet."}</p>
                                 </div>
-                                <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </>
                         )}
                       </div>

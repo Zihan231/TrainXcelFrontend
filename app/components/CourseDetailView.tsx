@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/libs/api";
 import { useCourses, Course, Lesson } from "@/hooks/useCourses";
 import { useTheme } from "@/context/ThemeContext";
@@ -9,6 +10,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { TestBuilder } from "@/components/TestBuilder";
 import { TestPlayer } from "@/components/TestPlayer";
 import { LessonEvaluationView } from "@/components/LessonEvaluationView";
+import { AiTestBuilder } from "@/components/AiTestBuilder";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Play, FileText, Check, CheckCircle, ExternalLink,
@@ -168,7 +170,7 @@ export function CourseDetailView({
 
   // ── Admin Tabs ────────────────────────────────────────────────────────────
   const [courseDetailsTab, setCourseDetailsTab] = useState<
-    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "leaderboard"
+    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "ai-test" | "leaderboard"
   >("player");
   const [showCourseSettingsEdit, setShowCourseSettingsEdit] = useState(false);
   const [showAddTestForm, setShowAddTestForm] = useState(false);
@@ -934,13 +936,13 @@ export function CourseDetailView({
                 {isAdminOrEmployee && (
                   <div className="flex flex-col gap-4">
                     <div className="flex border-b border-slate-200 dark:border-zinc-800 overflow-x-auto">
-                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard"] as const).map(tab => (
+                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "ai-test", "leaderboard"] as const).map(tab => (
                         <button
                           key={tab}
                           onClick={() => setCourseDetailsTab(tab)}
                           className={`pb-3 text-sm font-semibold px-4 whitespace-nowrap transition ${courseDetailsTab === tab ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
                         >
-                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : "Leaderboard"}
+                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : tab === "ai-test" ? "AI Test Builder" : "Leaderboard"}
                         </button>
                       ))}
                     </div>
@@ -1020,9 +1022,14 @@ export function CourseDetailView({
                         <div className="flex flex-col gap-6">
                           <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
                             <div><h4 className="font-bold text-slate-900 dark:text-zinc-50 text-sm">All Tests</h4><p className="text-xs text-slate-500 dark:text-zinc-400">Manage lesson tests and standalone exams for this course.</p></div>
-                            <button type="button" onClick={() => setShowAddTestForm(!showAddTestForm)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm">
-                              <span>{showAddTestForm ? "✕ Cancel" : "+ Add Test"}</span>
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => setCourseDetailsTab("ai-test")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm">
+                                <Sparkles size={14} /> AI Test Builder
+                              </button>
+                              <button type="button" onClick={() => setShowAddTestForm(!showAddTestForm)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                                <span>{showAddTestForm ? "✕ Cancel" : "+ Add Test"}</span>
+                              </button>
+                            </div>
                           </div>
                           {showAddTestForm && (
                             <div className="animate-fadeIn">
@@ -1030,19 +1037,18 @@ export function CourseDetailView({
                                 courseId={course.id}
                                 lessons={courseLessons}
                                 initialLessonId={selectedLesson?.id}
-                  onSuccess={async (createdForLessonId?: number) => {
-                    setShowAddTestForm(false);
-                    const freshLessons = await loadCourseLessons(course.courseId);
-                    if (createdForLessonId && freshLessons?.length) {
-                      const targetLesson = freshLessons.find((l: any) => l.id === createdForLessonId);
-                      if (targetLesson) { setSelectedLesson(targetLesson); setShowTestPlayer(true); }
-                    } else if (selectedLesson) {
-                      try { const res = await api.get(`/tests/lesson/${selectedLesson.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
-                    }
-                    try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
-                    // Immediately refresh final exams so admin sees newly created final exam without manual refresh
-                    try { const res = await api.get(`/tests/course/${course.courseId}`); setFinalExams(res.data || []); } catch {}
-                  }}
+                                onSuccess={async (createdForLessonId?: number) => {
+                                  setShowAddTestForm(false);
+                                  const freshLessons = await loadCourseLessons(course.courseId);
+                                  if (createdForLessonId && freshLessons?.length) {
+                                    const targetLesson = freshLessons.find((l: any) => l.id === createdForLessonId);
+                                    if (targetLesson) { setSelectedLesson(targetLesson); setShowTestPlayer(true); }
+                                  } else if (selectedLesson) {
+                                    try { const res = await api.get(`/tests/lesson/${selectedLesson.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
+                                  }
+                                  try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
+                                  try { const res = await api.get(`/tests/course/${course.courseId}`); setFinalExams(res.data || []); } catch {}
+                                }}
                               />
                             </div>
                           )}
@@ -1056,6 +1062,23 @@ export function CourseDetailView({
                               onCancel={() => setShowTestPlayer(false)}
                             />
                           )}
+                        </div>
+                      )}
+
+                      {/* AI Test Builder Tab */}
+                      {courseDetailsTab === "ai-test" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800">
+                          <AiTestBuilder
+                            courseId={course.id}
+                            lessons={courseLessons}
+                            initialLessonId={selectedLesson?.id}
+                            onSuccess={async () => {
+                              await loadCourseLessons(course.courseId);
+                              try { const res = await api.get(`/tests/lesson/${selectedLesson?.id}`); setHasTests(res.data && res.data.length > 0); } catch {}
+                              try { const res = await api.get(`/tests/standalone/${course.courseId}`); setStandaloneExams(res.data || []); } catch {}
+                              try { const res = await api.get(`/tests/course/${course.courseId}`); setFinalExams(res.data || []); } catch {}
+                            }}
+                          />
                         </div>
                       )}
 
@@ -1707,17 +1730,29 @@ export function CourseDetailView({
                               </div>
                             )}
 
-                            {ans.evaluatorComment && (
-                              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm mt-2">
-                                <div className="flex items-center justify-between mb-2">
-                                  <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
-                                  <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                                    Reviewed by Invigilator
-                                  </span>
+                            {(() => {
+                              const isAiCq = ans.evaluatedBy === 'AI';
+                              let cqFeedback: { marksAwarded?: number; feedback?: string } | null = null;
+                              if (ans.evaluatorComment) {
+                                try { cqFeedback = JSON.parse(ans.evaluatorComment); } catch (e) {}
+                              }
+                              if (!cqFeedback || typeof cqFeedback !== 'object' || !cqFeedback.feedback) {
+                                cqFeedback = { feedback: ans.evaluatorComment };
+                              }
+                              return (
+                                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm mt-2">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-blue-600 dark:text-blue-400 text-xs font-bold">
+                                      {isAiCq ? 'AI Feedback:' : 'Evaluator Comment:'}
+                                    </p>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isAiCq ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'}`}>
+                                      {isAiCq ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
+                                    </span>
+                                  </div>
+                                  <p className="text-blue-800 dark:text-blue-300 whitespace-pre-wrap">{cqFeedback.feedback || "No feedback comments provided yet."}</p>
                                 </div>
-                                <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </>
                         )}
                       </div>

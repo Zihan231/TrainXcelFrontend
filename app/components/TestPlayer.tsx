@@ -272,7 +272,9 @@ export function TestPlayer({
     setEditingQuestionId(q.id);
     setSelectedScriptFile(null);
     setTempScriptFileName("");
-    const refScript = q.type === "Video" ? (q.referenceScript || parentTest.referenceScript || "") : "";
+    const refScript = q.type === "Video" || q.type === "CQ"
+      ? (q.referenceScript || parentTest.referenceScript || "")
+      : "";
     const isFile = refScript && (
       refScript.startsWith("http") ||
       refScript.startsWith("/") ||
@@ -287,7 +289,7 @@ export function TestPlayer({
       postureMarks: q.postureMarks,
       voiceMarks: q.voiceMarks,
       accuracyMarks: q.accuracyMarks,
-      evaluationType: q.type === "Video" ? q.evaluationType || "AI" : undefined,
+      evaluationType: q.type === "Video" || q.type === "CQ" ? q.evaluationType || "AI" : undefined,
       referenceScript: refScript,
     });
   };
@@ -787,11 +789,154 @@ export function TestPlayer({
                           </div>
                         )}
 
-                        {/* CQ question text only — no answer box for admin */}
-                        {q.type === "CQ" && !isEditing && (
-                          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs text-slate-400 italic">
-                            Open-ended response question — learners type their answer.
-                          </div>
+                        {/* CQ question */}
+                        {q.type === "CQ" && (
+                          isEditing ? (
+                            <div className="mt-2 pl-1 flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">
+                                Evaluation Method:
+                              </label>
+                              <select
+                                value={editDraft.evaluationType || "AI"}
+                                onChange={e => setEditDraft({ ...editDraft, evaluationType: e.target.value })}
+                                className="text-xs rounded border border-slate-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 px-2.5 py-1 focus:border-blue-500 outline-none w-fit"
+                              >
+                                <option value="AI">AI Review</option>
+                                <option value="Manual">Manual Review</option>
+                              </select>
+
+                              {editDraft.evaluationType === "AI" && (
+                                <div className="flex flex-col gap-2 border-t border-slate-200/60 dark:border-zinc-800 pt-3 mt-3">
+                                  <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">Reference Script / Material</label>
+                                    <div className="flex bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg text-[10px] font-bold">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleScriptModeChange("file")}
+                                        className={`px-2.5 py-1 rounded-md transition ${scriptMode === "file" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                                      >
+                                        Documents
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleScriptModeChange("text")}
+                                        className={`px-2.5 py-1 rounded-md transition ${scriptMode === "text" ? "bg-white dark:bg-zinc-700 shadow-sm text-blue-600 dark:text-blue-400" : "text-slate-500"}`}
+                                      >
+                                        Write Plain Text
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {scriptMode === "file" ? (
+                                    <div className="flex flex-col gap-1">
+                                       <input
+                                        type="file"
+                                        accept=".pdf,.docx,.ppt,.pptx"
+                                        onChange={handleScriptFileChange}
+                                        className="text-xs file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                                      />
+                                      {uploadingScript && <span className="text-xs text-blue-500 animate-pulse">Uploading script...</span>}
+                                      {tempScriptFileName ? (
+                                        <span className="text-xs text-green-600 font-medium truncate mt-1 block">
+                                          Selected: {tempScriptFileName} (will upload on save)
+                                        </span>
+                                      ) : editDraft.referenceScript ? (
+                                        <span className="text-xs text-slate-500 font-medium truncate mt-1 block">
+                                          Current script: {editDraft.referenceScript.split('/').pop()}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <textarea
+                                      placeholder="Paste or write the reference material for AI evaluation..."
+                                      value={editDraft.referenceScript || ""}
+                                      onChange={e => setEditDraft({ ...editDraft, referenceScript: e.target.value })}
+                                      className="w-full text-xs rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 outline-none focus:border-blue-500 min-h-[80px]"
+                                    />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs text-slate-400 italic flex flex-col gap-1.5">
+                              <span className="text-slate-500">Open-ended response question — learners type their answer.</span>
+                              <span className="text-[10px] text-slate-500 font-semibold block">
+                                Evaluation Method: <span className="text-blue-600 dark:text-blue-400 font-bold uppercase">{q.evaluationType || "AI"}</span>
+                              </span>
+                              {q.referenceScript && (
+                                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800/40 text-left">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+                                    Reference Script / Material:
+                                  </span>
+                                  {(() => {
+                                    const refScript = q.referenceScript;
+                                    const isFile = refScript.startsWith("http") || 
+                                                   refScript.startsWith("/") ||
+                                                   (refScript.length < 200 && /\.(pdf|docx|doc|pptx|ppt)$/i.test(refScript));
+                                    
+                                    if (isFile) {
+                                      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+                                      const scriptUrl = refScript.startsWith("http") 
+                                        ? refScript 
+                                        : `${base}${refScript}`;
+                                      const isPdf = /\.(pdf)$/i.test(refScript);
+                                      const isDoc = /\.(docx|doc|pptx|ppt)$/i.test(refScript);
+                                      
+                                      if (isPdf) {
+                                        return (
+                                          <div className="flex flex-col gap-2">
+                                            <iframe src={scriptUrl} className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-lg" />
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleDownloadScript(scriptUrl)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-[10px] transition uppercase tracking-wider self-end mt-1 border border-blue-100 dark:border-blue-900/30"
+                                            >
+                                              <Download size={12} />
+                                              Download PDF ({refScript.split('/').pop()})
+                                            </button>
+                                          </div>
+                                        );
+                                      } else if (isDoc) {
+                                        const embedUrl = `https://docs.google.com/gview?url=${encodeURIComponent(scriptUrl)}&embedded=true`;
+                                        return (
+                                          <div className="flex flex-col gap-2">
+                                            <iframe src={embedUrl} className="w-full h-80 border border-slate-200 dark:border-zinc-800 rounded-lg bg-white" />
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleDownloadScript(scriptUrl)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-[10px] transition uppercase tracking-wider self-end mt-1 border border-blue-100 dark:border-blue-900/30"
+                                            >
+                                              <Download size={12} />
+                                              Download Document ({refScript.split('/').pop()})
+                                            </button>
+                                          </div>
+                                        );
+                                      } else {
+                                        return (
+                                          <div className="p-3 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-between text-xs">
+                                            <span className="font-semibold text-slate-700 dark:text-zinc-300 truncate max-w-[60%]">File: {refScript.split('/').pop()}</span>
+                                            <button 
+                                              type="button"
+                                              onClick={() => handleDownloadScript(scriptUrl)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition text-[10px] uppercase tracking-wider shrink-0"
+                                            >
+                                              Download
+                                            </button>
+                                          </div>
+                                        );
+                                      }
+                                    } else {
+                                      return (
+                                        <div className="p-3 bg-slate-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-800 rounded-lg max-h-40 overflow-y-auto text-xs font-mono whitespace-pre-wrap text-slate-700 dark:text-zinc-300">
+                                          {refScript}
+                                        </div>
+                                      );
+                                    }
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          )
                         )}
 
                         {/* Video question text only — no answer box for admin */}
@@ -1290,9 +1435,11 @@ export function TestPlayer({
                             ) : (
                               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm w-full">
                                 <div className="flex items-center justify-between mb-2">
-                                  <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
-                                  <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                                    Reviewed by Invigilator
+                                  <p className="text-blue-600 dark:text-blue-400 text-xs font-bold">
+                                    {ans.evaluatedBy === 'AI' ? 'AI Evaluation Details:' : 'Evaluator Comment:'}
+                                  </p>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ans.evaluatedBy === 'AI' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'}`}>
+                                    {ans.evaluatedBy === 'AI' ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
                                   </span>
                                 </div>
                                 <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment || "No feedback comments provided yet."}</p>
@@ -1307,17 +1454,29 @@ export function TestPlayer({
                           <p className="text-slate-500 text-xs font-bold mb-1">Your Answer:</p>
                           <p className="text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">{ans.providedAnswer || "No answer provided."}</p>
                         </div>
-                        {ans.evaluatorComment && (
-                          <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="text-blue-600 text-xs font-bold">Evaluator Comment:</p>
-                              <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                                Reviewed by Invigilator
-                              </span>
+                        {(() => {
+                          const isAiCq = ans.evaluatedBy === 'AI';
+                          let cqFeedback: { marksAwarded?: number; feedback?: string } | null = null;
+                          if (ans.evaluatorComment) {
+                            try { cqFeedback = JSON.parse(ans.evaluatorComment); } catch (e) {}
+                          }
+                          if (!cqFeedback || typeof cqFeedback !== 'object' || !cqFeedback.feedback) {
+                            cqFeedback = { feedback: ans.evaluatorComment };
+                          }
+                          return (
+                            <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 text-sm">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-blue-600 dark:text-blue-400 text-xs font-bold">
+                                  {isAiCq ? 'AI Feedback:' : 'Evaluator Comment:'}
+                                </p>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isAiCq ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'}`}>
+                                  {isAiCq ? 'Reviewed by AI' : 'Reviewed by Invigilator'}
+                                </span>
+                              </div>
+                              <p className="text-blue-800 dark:text-blue-300 whitespace-pre-wrap">{cqFeedback.feedback || "No feedback comments provided yet."}</p>
                             </div>
-                            <p className="text-blue-800 dark:text-blue-300">{ans.evaluatorComment}</p>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </>
                     )}
                   </div>
