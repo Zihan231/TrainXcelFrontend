@@ -1869,8 +1869,7 @@ export function CourseDetailView({
                 externalTest={selectedFinalExam}
                 isAdmin={false}
                 onSuccess={async () => {
-                  setSelectedFinalExam(null);
-                  // Refresh submission status
+                  // Refresh submission status without closing the modal
                   try {
                     const res = await api.get(`/tests/${selectedFinalExam.id}/my-submission`);
                     setFinalExamSubmissions(prev => ({ ...prev, [selectedFinalExam.id]: res.data || null }));

@@ -441,6 +441,7 @@ export function TestPlayer({
     }
 
     if (!activeTest) return;
+    const currentTest = activeTest;
     const targetTestId = activeTest.id;
 
     setIsSubmitting(true);
@@ -487,6 +488,9 @@ export function TestPlayer({
         const sRes = await api.get(`/tests/${targetTestId}/my-submission`);
         setSubmissions(prev => ({ ...prev, [targetTestId]: sRes.data }));
         toast.success("Test submitted successfully!");
+        if (currentTest?.questions?.some((q: any) => q.evaluationType === 'AI')) {
+          toast("AI evaluation in progress — results in 2–3 minutes.", { icon: '⏳', duration: 5000 });
+        }
         if (onSuccess) onSuccess();
       } else {
         toast.success("Draft saved!");
@@ -1631,7 +1635,7 @@ export function TestPlayer({
                     </div>
                     {submittingTestIds[test.id] ? (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 text-blue-600 bg-blue-50 dark:bg-blue-950/20 dark:text-blue-400 animate-pulse">
-                        Submitting...
+                        Evaluating...
                       </span>
                     ) : hasTaken && (
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
@@ -1653,6 +1657,12 @@ export function TestPlayer({
                       </span>
                     )}
                   </div>
+                  {test.questions.some((q: any) => q.evaluationType === 'AI') && (submittingTestIds[test.id] || (hasTaken && submissions[test.id].status === "Pending Evaluation")) && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <Clock size={12} />
+                      AI evaluation in progress — results in 2–3 minutes
+                    </p>
+                  )}
                   {standaloneHasTimeConstraint && !hasTaken && !submittingTestIds[test.id] && examStatus === 'scheduled' && (
                     <p className="text-xs text-slate-500">Starts in {formatTimeRemaining(timeRemaining)}</p>
                   )}
@@ -1673,9 +1683,9 @@ export function TestPlayer({
                   })()}
                   <div className="flex gap-2">
                     {submittingTestIds[test.id] ? (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-50/50 dark:bg-blue-950/10 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold transition animate-pulse border border-blue-100/40">
+                      <div className="flex-1 flex flex-col items-center justify-center gap-1 px-4 py-2 bg-blue-50/50 dark:bg-blue-950/10 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold transition animate-pulse border border-blue-100/40">
                         <Loader2 size={12} className="animate-spin" />
-                        Uploading &amp; Submitting...
+                        Processing...
                       </div>
                     ) : (
                       !hasTaken && submissionLoaded && !(standaloneHasTimeConstraint && examStatus !== 'active') && (

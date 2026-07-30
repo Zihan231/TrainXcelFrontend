@@ -46,6 +46,7 @@ export function AiTestBuilder({
   const [requestId, setRequestId] = useState<number | null>(null);
   const [error, setError] = useState<string>("");
   const [isLoadingLessons, setIsLoadingLessons] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -146,35 +147,9 @@ export function AiTestBuilder({
     }
   };
 
-  const handleGenerate = async () => {
-    if (mcqCount.trim() === "") {
-      setError("Enter MCQ count (0 if you don't want any).");
-      return;
-    }
-    if (cqCount.trim() === "") {
-      setError("Enter CQ count (0 if you don't want any).");
-      return;
-    }
+  const doGenerate = async () => {
     const mcqNum = parseInt(mcqCount, 10);
     const cqNum = parseInt(cqCount, 10);
-    if (isNaN(mcqNum) || mcqNum < 0 || mcqNum > 20) {
-      setError("MCQ Count must be a number between 0 and 20.");
-      return;
-    }
-    if (isNaN(cqNum) || cqNum < 0 || cqNum > 10) {
-      setError("CQ Count must be a number between 0 and 10.");
-      return;
-    }
-
-    if (mcqNum === 0 && cqNum === 0 && !includeVideoTest) {
-      setError("At least one of MCQ, CQ, or Video test must be selected.");
-      return;
-    }
-
-    if (!selectedLessonId || !documentUrl) {
-      setError("Please select a lesson and upload a document.");
-      return;
-    }
 
     setStatus("generating");
     setError("");
@@ -205,6 +180,39 @@ export function AiTestBuilder({
       toast.error(genErr);
       setStatus("failed");
     }
+  };
+
+  const handleGenerate = () => {
+    if (mcqCount.trim() === "") {
+      setError("Enter MCQ count (0 if you don't want any).");
+      return;
+    }
+    if (cqCount.trim() === "") {
+      setError("Enter CQ count (0 if you don't want any).");
+      return;
+    }
+    const mcqNum = parseInt(mcqCount, 10);
+    const cqNum = parseInt(cqCount, 10);
+    if (isNaN(mcqNum) || mcqNum < 0 || mcqNum > 20) {
+      setError("MCQ Count must be a number between 0 and 20.");
+      return;
+    }
+    if (isNaN(cqNum) || cqNum < 0 || cqNum > 10) {
+      setError("CQ Count must be a number between 0 and 10.");
+      return;
+    }
+
+    if (mcqNum === 0 && cqNum === 0 && !includeVideoTest) {
+      setError("At least one of MCQ, CQ, or Video test must be selected.");
+      return;
+    }
+
+    if (!selectedLessonId || !documentUrl) {
+      setError("Please select a lesson and upload a document.");
+      return;
+    }
+
+    setShowConfirm(true);
   };
 
   const resetForm = () => {
@@ -424,6 +432,53 @@ export function AiTestBuilder({
           )}
         </div>
       </div>
+
+      {showConfirm && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" onClick={() => setShowConfirm(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-zinc-50">Confirm Generation</h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Review the configuration before generating the test.</p>
+
+            <div className="mt-5 flex flex-col gap-3">
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-zinc-800/60">
+                <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">Lesson</span>
+                <span className="text-sm font-semibold text-slate-900 dark:text-zinc-100">{lessons.find(l => String(l.id) === selectedLessonId)?.title || `Lesson #${selectedLessonId}`}</span>
+              </div>
+              {testTitle.trim() && (
+                <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-zinc-800/60">
+                  <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">Title</span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-zinc-100">{testTitle.trim()}</span>
+                </div>
+              )}
+              <div className="rounded-lg bg-blue-50 px-3 py-3 dark:bg-blue-950/20">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 text-center">
+                    <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{mcqCount || 0}</span>
+                    <p className="text-[10px] font-semibold text-blue-500/70 dark:text-blue-400/70 uppercase tracking-wider mt-0.5">MCQ</p>
+                  </div>
+                  <div className="flex-1 text-center">
+                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{cqCount || 0}</span>
+                    <p className="text-[10px] font-semibold text-emerald-500/70 dark:text-emerald-400/70 uppercase tracking-wider mt-0.5">CQ</p>
+                  </div>
+                  <div className="flex-1 text-center">
+                    <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{includeVideoTest ? 'Yes' : 'No'}</span>
+                    <p className="text-[10px] font-semibold text-amber-500/70 dark:text-amber-400/70 uppercase tracking-wider mt-0.5">Video Test</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setShowConfirm(false)} className="rounded-xl border border-slate-200 bg-transparent px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                Cancel
+              </button>
+              <button onClick={() => { setShowConfirm(false); doGenerate(); }} className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+                <CheckCircle2 size={16} /> Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
