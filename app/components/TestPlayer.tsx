@@ -135,16 +135,25 @@ export function TestPlayer({
           try {
             const sRes = await api.get(`/tests/${externalTest.id}/my-submission`);
             setSubmissions(prev => ({ ...prev, [externalTest.id]: sRes.data || null }));
+            if (autoStart && !sRes.data) {
+              handleStartTest(externalTest);
+            }
           } catch {
             setSubmissions(prev => ({ ...prev, [externalTest.id]: null }));
+            if (autoStart) {
+              handleStartTest(externalTest);
+            }
           }
         })();
+      } else if (autoStart) {
+        handleStartTest(externalTest);
       }
     } else {
       fetchTests();
       if (!isAdmin) fetchLeaderboard();
     }
-  }, [lessonId, externalTest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId, externalTest, autoStart, isAdmin]);
 
   // Countdown timer for standalone exams
   useEffect(() => {
@@ -1740,30 +1749,32 @@ export function TestPlayer({
       )}
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
-        <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-6 flex items-center gap-2">
-          <CheckCircle className="text-amber-500" size={18} /> Top 5 Leaderboard
-        </h3>
-        {leaderboard.length === 0 ? (
-          <p className="text-slate-500">No participants yet. Submit your test to be the first!</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {leaderboard.map((lb, idx) => (
-              <div key={idx} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700">
-                <div className="flex items-center gap-3">
-                  <span className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    idx === 0 ? "bg-amber-100 text-amber-700 animate-pulse" :
-                    idx === 1 ? "bg-slate-200 text-slate-700" :
-                    idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"
-                  }`}>#{idx + 1}</span>
-                  <span className="font-medium text-slate-800 dark:text-zinc-200">{lb.name}</span>
+      {!hideLeaderboard && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
+          <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-6 flex items-center gap-2">
+            <CheckCircle className="text-amber-500" size={18} /> Top 5 Leaderboard
+          </h3>
+          {leaderboard.length === 0 ? (
+            <p className="text-slate-500">No participants yet. Submit your test to be the first!</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {leaderboard.map((lb, idx) => (
+                <div key={idx} className="flex justify-between items-center p-3 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700">
+                  <div className="flex items-center gap-3">
+                    <span className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      idx === 0 ? "bg-amber-100 text-amber-700 animate-pulse" :
+                      idx === 1 ? "bg-slate-200 text-slate-700" :
+                      idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"
+                    }`}>#{idx + 1}</span>
+                    <span className="font-medium text-slate-800 dark:text-zinc-200">{lb.name}</span>
+                  </div>
+                  <span className="font-bold text-slate-900 dark:text-zinc-100">{lb.marksObtained} pts</span>
                 </div>
-                <span className="font-bold text-slate-900 dark:text-zinc-100">{lb.marksObtained} pts</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {/* Webcam Recorder Modal */}
       {recordingQuestionId && (
         <WebcamRecorder 

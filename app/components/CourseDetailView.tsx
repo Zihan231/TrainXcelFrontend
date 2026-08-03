@@ -296,7 +296,11 @@ export function CourseDetailView({
       }
 
       if (autoSelectFirst && activeLessons.length > 0) {
-        setSelectedLesson(activeLessons[0]);
+        const saved = typeof window !== "undefined" ? localStorage.getItem(`trainxcel:selected-lesson:${cId}`) : null;
+        const savedLesson = saved
+          ? activeLessons.find(l => String(l.id) === saved || l.lessonId === saved)
+          : undefined;
+        setSelectedLesson(savedLesson || activeLessons[0]);
       }
       return activeLessons;
     } catch {
@@ -311,6 +315,17 @@ export function CourseDetailView({
       loadCourseLessons(courseId, true);
     }
   }, [courseId, loadCourseLessons]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Persist selected lesson so refresh keeps you on the same lesson
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (selectedLesson && courseId) {
+      try {
+        localStorage.setItem(`trainxcel:selected-lesson:${courseId}`, String(selectedLesson.id));
+      } catch {}
+    }
+  }, [selectedLesson, courseId]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Standalone exams
