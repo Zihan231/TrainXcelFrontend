@@ -20,6 +20,7 @@ export interface Lesson {
   materialType: string;
   materialLink: string;
   status: string;
+  practiceEnabled?: boolean;
   deletedAt?: string;
   tests?: { id: number }[];
 }
@@ -122,6 +123,7 @@ export function useCourses() {
         materialType: "Video" | "PDF" | "PPT" | "DOCX";
         materialLink: string;
         status?: string;
+        practiceEnabled?: boolean;
       }
     ) => {
       try {
@@ -146,7 +148,7 @@ export function useCourses() {
     }
   }, []);
 
-  const updateLesson = useCallback(async (courseId: string, lessonId: string, data: { title?: string; description?: string; materialType?: string; materialLink?: string; status?: string }) => {
+  const updateLesson = useCallback(async (courseId: string, lessonId: string, data: { title?: string; description?: string; materialType?: string; materialLink?: string; status?: string; practiceEnabled?: boolean }) => {
     try {
       const res = await api.patch(`/courses/${courseId}/lessons/${lessonId}`, data);
       return res.data;

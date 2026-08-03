@@ -11,6 +11,7 @@ import { TestBuilder } from "@/components/TestBuilder";
 import { TestPlayer } from "@/components/TestPlayer";
 import { LessonEvaluationView } from "@/components/LessonEvaluationView";
 import { AiTestBuilder } from "@/components/AiTestBuilder";
+import { PracticeTestPanel } from "@/components/PracticeTestPanel";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Play, FileText, Check, CheckCircle, ExternalLink,
@@ -193,8 +194,8 @@ export function CourseDetailView({
   const [editLessonLink, setEditLessonLink] = useState("");
   const [editLessonType, setEditLessonType] = useState<"Video" | "PDF" | "PPT" | "DOCX">("Video");
   const [editLessonInputMode, setEditLessonInputMode] = useState<"link" | "file">("link");
-  const [isUpdatingLesson, setIsUpdatingLesson] = useState(false);
-  const [isUploadingEditFile, setIsUploadingEditFile] = useState(false);
+  const [editLessonPracticeEnabled, setEditLessonPracticeEnabled] = useState(false);
+  const [isUpdatingLesson, setIsUpdatingLesson] = useState(false);  const [isUploadingEditFile, setIsUploadingEditFile] = useState(false);
   const [editLessonError, setEditLessonError] = useState("");
 
   // ── Add Lesson ────────────────────────────────────────────────────────────
@@ -207,6 +208,9 @@ export function CourseDetailView({
   const [isDeployingLesson, setIsDeployingLesson] = useState(false);
   const [lessonFormError, setLessonFormError] = useState("");
   const [lessonFormSuccess, setLessonFormSuccess] = useState("");
+
+  // ── Practice toggle (playlist) ───────────────────────────────────────────
+  const [togglingPracticeLessonId, setTogglingPracticeLessonId] = useState<number | null>(null);
 
   // ── Student Marks ─────────────────────────────────────────────────────────
   const [studentMarks, setStudentMarks] = useState<any[]>([]);
@@ -266,7 +270,7 @@ export function CourseDetailView({
   useEffect(() => {
     if (!isAdminOrEmployee) return;
     api.get("/courses/categories").then(res => {
-      setCategoriesList(res.data || []);
+      setCategoriesList((res.data || []).map((cat: any) => ({ categoryId: cat.id, categoryName: cat.name })));
     }).catch(() => {});
   }, [isAdminOrEmployee]);
 
@@ -460,11 +464,12 @@ export function CourseDetailView({
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (editingLesson) {
-      setEditLessonTitle(editingLesson.title);
+      setEditLessonTitle(editingLesson.title || "");
       setEditLessonDescription(editingLesson.description || "");
-      setEditLessonLink(editingLesson.materialLink);
+      setEditLessonLink(editingLesson.materialLink || "");
       setEditLessonType(editingLesson.materialType as any);
       setEditLessonInputMode("link");
+      setEditLessonPracticeEnabled(!!editingLesson.practiceEnabled);
       setEditLessonError("");
     }
   }, [editingLesson]);
@@ -615,10 +620,10 @@ export function CourseDetailView({
     setIsUpdatingLesson(true); setEditLessonError("");
     try {
       const typeToSubmit = editLessonInputMode === "link" ? detectMaterialType(editLessonLink) : editLessonType;
-      await updateLesson(course.courseId, editingLesson.lessonId, { title: editLessonTitle, description: editLessonDescription, materialType: typeToSubmit, materialLink: editLessonLink });
+      await updateLesson(course.courseId, editingLesson.lessonId, { title: editLessonTitle, description: editLessonDescription, materialType: typeToSubmit, materialLink: editLessonLink, practiceEnabled: editLessonPracticeEnabled });
       await loadCourseLessons(course.courseId);
       if (selectedLesson?.lessonId === editingLesson.lessonId) {
-        setSelectedLesson(prev => prev ? { ...prev, title: editLessonTitle, description: editLessonDescription, materialLink: editLessonLink, materialType: typeToSubmit } : null);
+        setSelectedLesson(prev => prev ? { ...prev, title: editLessonTitle, description: editLessonDescription, materialLink: editLessonLink, materialType: typeToSubmit, practiceEnabled: editLessonPracticeEnabled } : null);
       }
       setEditingLesson(null);
       toast.success("Lesson updated!");
@@ -916,6 +921,13 @@ export function CourseDetailView({
                       onCancel={() => setShowTestPlayer(false)}
                     />
                   </div>
+                )}
+
+                {/* AI Test Practice Panel for Learners */}
+                {!isAdminOrEmployee && selectedLesson && selectedLesson.practiceEnabled && (
+                  <PracticeTestPanel
+                    lesson={selectedLesson}
+                  />
                 )}
 
                 {/* Standalone Exam Player */}
@@ -1311,8 +1323,39 @@ export function CourseDetailView({
                           )}
                           {isAdminOrEmployee && (
                             <div className="flex items-center gap-1">
-                              <button onClick={e => { e.stopPropagation(); setEditingLesson(l); }} className="p-1 text-slate-450 hover:text-blue-600 transition rounded hover:bg-blue-50 dark:hover:bg-blue-950/20" title="Edit lesson details"><Pencil size={12} /></button>
-                              <button onClick={e => { e.stopPropagation(); confirmSoftDeleteLesson(course.courseId, l.lessonId); }} className="p-1 text-slate-400 hover:text-rose-600 transition rounded hover:bg-rose-50 dark:hover:bg-rose-950/20" title="Move lesson to Recycle Bin"><Trash2 size={12} /></button>
+                              <button
+                                onClick={async e => {
+                                  e.stopPropagation();
+                                  setTogglingPracticeLessonId(l.id);
+                                  try {
+                                    await updateLesson(course.courseId, l.lessonId, { practiceEnabled: !l.practiceEnabled });
+                                    await loadCourseLessons(course.courseId);
+                                    if (selectedLesson?.lessonId === l.lessonId) {
+                                      setSelectedLesson(prev => prev ? { ...prev, practiceEnabled: !l.practiceEnabled } : null);
+                                    }
+                                    toast.success(l.practiceEnabled ? "Practice disabled" : "Practice enabled");
+                                  } catch (err: any) {
+                                    toast.error(err.message || "Failed to toggle practice.");
+                                  } finally {
+                                    setTogglingPracticeLessonId(null);
+                                  }
+                                }}
+                                disabled={togglingPracticeLessonId === l.id}
+                                className={`p-1.5 rounded transition ${
+                                  l.practiceEnabled
+                                    ? "text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                                    : "text-slate-400 hover:text-amber-600 dark:hover:text-amber-400"
+                                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                title={l.practiceEnabled ? "Disable AI Test Practice" : "Enable AI Test Practice"}
+                              >
+                                {togglingPracticeLessonId === l.id ? (
+                                  <Loader2 size={15} className="animate-spin" />
+                                ) : (
+                                  <Sparkles size={15} />
+                                )}
+                              </button>
+                              <button onClick={e => { e.stopPropagation(); setEditingLesson(l); }} className="p-1.5 text-slate-450 hover:text-blue-600 transition rounded hover:bg-blue-50 dark:hover:bg-blue-950/20" title="Edit lesson details"><Pencil size={14} /></button>
+                              <button onClick={e => { e.stopPropagation(); confirmSoftDeleteLesson(course.courseId, l.lessonId); }} className="p-1.5 text-slate-400 hover:text-rose-600 transition rounded hover:bg-rose-50 dark:hover:bg-rose-950/20" title="Move lesson to Recycle Bin"><Trash2 size={14} /></button>
                             </div>
                           )}
                         </div>
@@ -1534,6 +1577,29 @@ export function CourseDetailView({
                   {editLessonLink && !isUploadingEditFile && <span className="text-[10px] text-green-600 truncate">Linked: {editLessonLink}</span>}
                 </div>
               )}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-800 dark:text-zinc-200">Enable AI Test Practice</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                    {editLessonType === "Video"
+                      ? "Not available for video lessons."
+                      : "Let learners generate AI practice tests from this lesson's material."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={editLessonPracticeEnabled}
+                  aria-disabled={editLessonType === "Video"}
+                  disabled={editLessonType === "Video"}
+                  onClick={() => setEditLessonPracticeEnabled(v => !v)}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 ${
+                    editLessonPracticeEnabled ? "bg-blue-600" : "bg-slate-300 dark:bg-zinc-700"
+                  } ${editLessonType === "Video" ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${editLessonPracticeEnabled ? "translate-x-[22px]" : "translate-x-0"}`} />
+                </button>
+              </div>
               <div className="flex justify-end gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
                 <button type="button" onClick={() => setEditingLesson(null)} className="rounded-xl border border-slate-200 bg-transparent px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
                 <button type="submit" disabled={isUpdatingLesson} className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{isUpdatingLesson ? "Saving..." : "Save Changes"}</button>

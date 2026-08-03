@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download, AlertTriangle } from "lucide-react";
+import { CheckCircle, ArrowLeft, Edit2, Save, X, Plus, Trash2, Check, Video, UploadCloud, Camera, Clock, MonitorPlay, Loader2, Download, AlertTriangle, ChevronUp, ChevronDown } from "lucide-react";
 import { api } from "@/libs/api";
 import { WebcamRecorder } from "./WebcamRecorder";
 import toast from "react-hot-toast";
@@ -62,6 +62,9 @@ interface TestPlayerProps {
   hasNextLesson?: boolean;
   onNextLesson?: () => void;
   externalTest?: any;
+  hideLeaderboard?: boolean;
+  autoStart?: boolean;
+  isModalMode?: boolean;
 }
 
 export function TestPlayer({ 
@@ -71,7 +74,10 @@ export function TestPlayer({
   isAdmin = false,
   hasNextLesson = false,
   onNextLesson,
-  externalTest
+  externalTest,
+  hideLeaderboard = false,
+  autoStart = false,
+  isModalMode = false
 }: TestPlayerProps) {
   const [tests, setTests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +95,7 @@ export function TestPlayer({
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [examStatus, setExamStatus] = useState<'scheduled' | 'active' | 'completed'>('completed');
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [isTestsMinimized, setIsTestsMinimized] = useState(false);
   const answersRef = React.useRef(answers);
 
   useEffect(() => {
@@ -1126,9 +1133,9 @@ export function TestPlayer({
 
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
-        <button onClick={() => setActiveTest(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+        {!isModalMode && (<button onClick={() => setActiveTest(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
           <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
-        </button>
+        </button>)}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100 dark:border-zinc-800">
           <div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50">
@@ -1333,9 +1340,9 @@ export function TestPlayer({
   if (reviewSubmission) {
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
-        <button onClick={() => setReviewSubmission(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+        {!isModalMode && (<button onClick={() => setReviewSubmission(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
           <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
-        </button>
+        </button>)}
         <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-1">Reviewing Answers</h3>
         <p className="text-sm text-slate-500 mb-6">Score obtained: <span className="font-bold text-blue-600">{reviewSubmission.marksObtained}</span> points</p>
         <div className="flex flex-col gap-6">
@@ -1515,9 +1522,9 @@ export function TestPlayer({
     if (!isStructuredFeedback) {
       return (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn max-w-2xl mx-auto shadow-xl">
-          <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+          {!isModalMode && (<button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
             <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
-          </button>
+          </button>)}
           <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">Performance Evaluation</h3>
           <p className="text-sm text-slate-500 mb-6">Here is the grade and feedback details of your video test submission.</p>
 
@@ -1556,9 +1563,9 @@ export function TestPlayer({
 
     return (
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn max-w-2xl mx-auto shadow-xl">
-        <button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
+        {!isModalMode && (<button onClick={() => setAiFeedbackData(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 transition mb-6 w-fit border border-blue-100 dark:border-blue-900/30">
           <ArrowLeft size={14} className="stroke-[3px]" /> Back to tests
-        </button>
+        </button>)}
         <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 mb-2">
           {aiFeedbackData.evaluatedBy === 'AI' ? 'AI Performance Evaluation' : 'Performance Evaluation Details'}
         </h3>
@@ -1616,8 +1623,19 @@ export function TestPlayer({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
-        <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50 mb-6">Tests &amp; Exams</h3>
-        {tests.length === 0 ? (
+        <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50">Tests &amp; Exams</h3>
+            <button
+              onClick={() => setIsTestsMinimized(!isTestsMinimized)}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+              title={isTestsMinimized ? "Expand" : "Minimize"}
+            >
+              {isTestsMinimized ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+            </button>
+          </div>
+          
+          {!isTestsMinimized && (
+          tests.length === 0 ? (
           <p className="text-slate-500">No tests available for this lesson.</p>
         ) : (
           <div className="flex flex-col gap-4">
@@ -1718,7 +1736,8 @@ export function TestPlayer({
               );
             })}
           </div>
-        )}
+        )
+      )}
       </div>
 
       <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
