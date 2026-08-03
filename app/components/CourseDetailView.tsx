@@ -296,7 +296,9 @@ export function CourseDetailView({
       }
 
       if (autoSelectFirst && activeLessons.length > 0) {
-        const saved = typeof window !== "undefined" ? localStorage.getItem(`trainxcel:selected-lesson:${cId}`) : null;
+        const saved = typeof window !== "undefined" && userId
+          ? localStorage.getItem(`trainxcel:selected-lesson:${cId}:${userId}`)
+          : null;
         const savedLesson = saved
           ? activeLessons.find(l => String(l.id) === saved || l.lessonId === saved)
           : undefined;
@@ -317,15 +319,16 @@ export function CourseDetailView({
   }, [courseId, loadCourseLessons]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Persist selected lesson so refresh keeps you on the same lesson
+  // Persist selected lesson so refresh/back/relogin keeps you on the same lesson
+  // (scoped per user, so a different account starts fresh)
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (selectedLesson && courseId) {
+    if (selectedLesson && courseId && userId) {
       try {
-        localStorage.setItem(`trainxcel:selected-lesson:${courseId}`, String(selectedLesson.id));
+        localStorage.setItem(`trainxcel:selected-lesson:${courseId}:${userId}`, String(selectedLesson.id));
       } catch {}
     }
-  }, [selectedLesson, courseId]);
+  }, [selectedLesson, courseId, userId]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Standalone exams
