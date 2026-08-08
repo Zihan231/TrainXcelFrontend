@@ -32,6 +32,7 @@ import {
   Trash2,
   Menu,
   X,
+  History,
 } from "lucide-react";
 
 // Sidebar content that uses search params
@@ -45,6 +46,7 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
 
   const isManageCoursesActive = currentTab === "manage-courses" || pathname?.startsWith("/dashboard/courses");
   const isMyLearningActive = currentTab === "my-learning" || currentTab === "overview" || pathname?.startsWith("/dashboard/learn");
+  const isActivityLogActive = pathname?.startsWith("/dashboard/activity-log");
 
   const isAdminOrEmployee = role === "admin" || role === "employee";
   const isAdmin = role === "admin";
@@ -119,6 +121,15 @@ function SidebarContent({ isMobile = false, onClose }: { isMobile?: boolean; onC
                 label="User Management"
                 href="/dashboard?tab=users"
                 active={currentTab === "users"}
+                onClick={onClose}
+              />
+            )}
+            {isAdmin && (
+              <NavItem
+                icon={<History size={18} />}
+                label="Activity Log"
+                href="/dashboard/activity-log"
+                active={isActivityLogActive}
                 onClick={onClose}
               />
             )}

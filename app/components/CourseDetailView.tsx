@@ -172,7 +172,7 @@ export function CourseDetailView({
 
   // ── Admin Tabs ────────────────────────────────────────────────────────────
   const [courseDetailsTab, setCourseDetailsTab] = useState<
-    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "ai-test" | "leaderboard"
+    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "ai-test" | "leaderboard" | "activity-log"
   >("player");
   const [showCourseSettingsEdit, setShowCourseSettingsEdit] = useState(false);
   const [showAddTestForm, setShowAddTestForm] = useState(false);
@@ -222,6 +222,16 @@ export function CourseDetailView({
   const [marksFinalExam, setMarksFinalExam] = useState<any | null>(null);
   const [reviewStudentSubmission, setReviewStudentSubmission] = useState<any | null>(null);
   const [isReviewLoading, setIsReviewLoading] = useState<number | null>(null);
+
+  // ── Edit Marks (admin only) ───────────────────────────────────────────────
+  const [isEditingMarks, setIsEditingMarks] = useState(false);
+  const [editedMarks, setEditedMarks] = useState<Record<number, { marksAwarded: string; evaluatorComment: string }>>({});
+  const [isSavingMarks, setIsSavingMarks] = useState(false);
+
+  // ── Activity Log (admin) ──────────────────────────────────────────────────
+  const [courseActivityLogs, setCourseActivityLogs] = useState<any[]>([]);
+  const [isActivityLogsLoading, setIsActivityLogsLoading] = useState(false);
+  const [activityLogsError, setActivityLogsError] = useState("");
 
   // ── Admin Leaderboard ─────────────────────────────────────────────────────
   const [adminLeaderboardLessonId, setAdminLeaderboardLessonId] = useState<string>("");
@@ -711,6 +721,62 @@ export function CourseDetailView({
     }
   };
 
+  const startEditMarks = () => {
+    if (!reviewStudentSubmission) return;
+    const initial: Record<number, { marksAwarded: string; evaluatorComment: string }> = {};
+    (reviewStudentSubmission.answers || []).forEach((a: any) => {
+      if (!a?.id) return;
+      initial[a.id] = {
+        marksAwarded: String(a.marksAwarded ?? 0),
+        evaluatorComment: typeof a.evaluatorComment === "string" ? a.evaluatorComment : "",
+      };
+    });
+    setEditedMarks(initial);
+    setIsEditingMarks(true);
+  };
+
+  const handleSaveMarks = async () => {
+    if (!reviewStudentSubmission) return;
+    setIsSavingMarks(true);
+    try {
+      const answers = Object.entries(editedMarks).map(([id, val]) => ({
+        submissionAnswerId: Number(id),
+        marksAwarded: Number(val.marksAwarded) || 0,
+        evaluatorComment: val.evaluatorComment || "",
+      }));
+      await api.put(`/tests/submissions/${reviewStudentSubmission.id}/marks`, { answers });
+      toast.success("Marks updated successfully.");
+      setIsEditingMarks(false);
+      const res = await api.get(`/tests/submissions/${reviewStudentSubmission.id}`);
+      setReviewStudentSubmission(res.data);
+      await loadStudentMarks();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to update marks.");
+    } finally {
+      setIsSavingMarks(false);
+    }
+  };
+
+  const loadCourseActivityLogs = useCallback(async () => {
+    if (!isAdmin) return;
+    setIsActivityLogsLoading(true);
+    setActivityLogsError("");
+    try {
+      const res = await api.get(`/activity-logs/course/${courseId}`);
+      setCourseActivityLogs(res.data?.data || []);
+    } catch {
+      setActivityLogsError("Failed to load activity log.");
+    } finally {
+      setIsActivityLogsLoading(false);
+    }
+  }, [courseId, isAdmin]);
+
+  useEffect(() => {
+    if (courseDetailsTab === "activity-log") {
+      loadCourseActivityLogs();
+    }
+  }, [courseDetailsTab, loadCourseActivityLogs]);
+
   const handleDeleteTest = async (testId: number, type: 'standalone' | 'final') => {
     try {
       await api.delete(`/tests/${testId}`);
@@ -967,13 +1033,15 @@ export function CourseDetailView({
                 {isAdminOrEmployee && (
                   <div className="flex flex-col gap-4">
                     <div className="flex border-b border-slate-200 dark:border-zinc-800 overflow-x-auto">
-                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard"] as const).map(tab => (
+                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard", "activity-log"] as const)
+                        .filter(tab => tab !== "activity-log" || isAdmin)
+                        .map(tab => (
                         <button
                           key={tab}
                           onClick={() => setCourseDetailsTab(tab)}
                           className={`pb-3 text-sm font-semibold px-4 whitespace-nowrap transition ${courseDetailsTab === tab ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
                         >
-                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : "Leaderboard"}
+                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : tab === "activity-log" ? "Activity Log" : "Leaderboard"}
                         </button>
                       ))}
                     </div>
@@ -1273,6 +1341,56 @@ export function CourseDetailView({
                                         <button onClick={() => handleViewSubmissionDetails(sub.id)} disabled={isReviewLoading === sub.id} className="ml-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-950/30 dark:hover:bg-blue-900/50 transition border border-blue-100 dark:border-blue-900/40 disabled:opacity-50">
                                           {isReviewLoading === sub.id ? <Loader2 size={12} className="animate-spin" /> : null} View Details
                                         </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Activity Log Tab */}
+                      {courseDetailsTab === "activity-log" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <h4 className="font-bold text-slate-900 dark:text-zinc-50">Activity Log</h4>
+                              <p className="text-xs text-slate-500">Audit trail for actions performed on this course.</p>
+                            </div>
+                          </div>
+                          {isActivityLogsLoading ? (
+                            <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading activity...</span></div>
+                          ) : activityLogsError ? (
+                            <p className="text-xs text-red-500">{activityLogsError}</p>
+                          ) : courseActivityLogs.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-4 text-center">No activity recorded for this course yet.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left">
+                                <thead className="bg-slate-50 dark:bg-zinc-800/50">
+                                  <tr>
+                                    {["Date", "Admin", "Role", "Action", "Target"].map(h => <th key={h} className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{h}</th>)}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {courseActivityLogs.map((log: any) => (
+                                    <tr key={log.id} className="border-b border-slate-100 dark:border-zinc-800">
+                                      <td className="py-3 px-4 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap">{new Date(log.createdAt).toLocaleString()}</td>
+                                      <td className="py-3 px-4">
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-sm font-bold text-slate-800 dark:text-zinc-100">{log.actorName}</span>
+                                          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 font-mono text-[10px] font-semibold tracking-wide w-fit">{log.actorId}</span>
+                                        </div>
+                                      </td>
+                                      <td className="py-3 px-4"><span className="px-2 py-1 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 text-xs font-semibold">{log.actorRole}</span></td>
+                                      <td className="py-3 px-4"><span className="px-2.5 py-1 rounded-full text-xs font-bold border whitespace-nowrap bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/40 border-blue-100">{log.action.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span></td>
+                                      <td className="py-3 px-4">
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">{log.targetName || "—"}</span>
+                                          <span className="text-[10px] text-slate-400 font-mono">{log.targetType ? `${log.targetType}${log.targetId ? ` · ${log.targetId}` : ""}` : ""}</span>
+                                        </div>
                                       </td>
                                     </tr>
                                   ))}
@@ -1689,6 +1807,21 @@ export function CourseDetailView({
             </button>
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-xl font-bold text-slate-900 dark:text-zinc-50">Reviewing Answers: {reviewStudentSubmission.user?.name}</h3>
+              <div className="flex items-center gap-2">
+                {isAdmin && !isEditingMarks && (
+                  <button onClick={startEditMarks} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition">
+                    <Pencil size={13} /> Edit Marks
+                  </button>
+                )}
+                {isAdmin && isEditingMarks && (
+                  <>
+                    <button onClick={() => setIsEditingMarks(false)} disabled={isSavingMarks} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition dark:text-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 disabled:opacity-50">Cancel</button>
+                    <button onClick={handleSaveMarks} disabled={isSavingMarks} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-600 hover:bg-green-700 transition disabled:opacity-50">
+                      {isSavingMarks ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save Marks
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <p className="text-sm text-slate-500 mb-6">Score obtained: <span className="font-bold text-blue-600">{reviewStudentSubmission.marksObtained}</span> points</p>
             <div className="flex flex-col gap-6">
@@ -1716,9 +1849,33 @@ export function CourseDetailView({
                     <h5 className="font-semibold text-slate-800 dark:text-zinc-100 mb-1">{idx + 1}. {ans.question?.questionText}</h5>
                     <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
                       <span>Total Marks: {ans.question?.marks}</span>
-                      <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : (isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "text-amber-500" : "text-rose-600")}`}>
-                        Marks Awarded: {isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "Pending" : (ans.marksAwarded ?? 0)}
-                      </span>
+                      {isEditingMarks && isCQ ? (
+                        <div className="flex flex-col gap-2 items-end">
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-bold text-slate-500">Marks:</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={ans.question?.marks}
+                              value={editedMarks[ans.id]?.marksAwarded ?? ""}
+                              onChange={e => setEditedMarks(prev => ({ ...prev, [ans.id]: { marksAwarded: e.target.value, evaluatorComment: prev[ans.id]?.evaluatorComment ?? "" } }))}
+                              className="w-20 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-xs font-bold text-slate-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                            />
+                            <span className="text-[11px] text-slate-400">/ {ans.question?.marks}</span>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Evaluator comment..."
+                            value={editedMarks[ans.id]?.evaluatorComment ?? ""}
+                            onChange={e => setEditedMarks(prev => ({ ...prev, [ans.id]: { marksAwarded: prev[ans.id]?.marksAwarded ?? "", evaluatorComment: e.target.value } }))}
+                            className="w-56 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-xs text-slate-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                          />
+                        </div>
+                      ) : (
+                        <span className={`font-bold ${isCorrect || (isCQ && ans.marksAwarded > 0) ? "text-green-600" : (isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "text-amber-500" : "text-rose-600")}`}>
+                          Marks Awarded: {isCQ && reviewStudentSubmission.status === "Pending Evaluation" ? "Pending" : (ans.marksAwarded ?? 0)}
+                        </span>
+                      )}
                     </div>
                     {!isCQ && ans.question?.options ? (
                       <div className="flex flex-col gap-2">
