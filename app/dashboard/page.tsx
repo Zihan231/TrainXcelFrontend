@@ -293,6 +293,10 @@ function DashboardPageContent() {
   const [learnerProgress, setLearnerProgress] = useState<Record<string, number>>({});
   const [completedLessonsMap, setCompletedLessonsMap] = useState<Record<string, string[]>>({}); // courseId -> lessonIds[]
   
+  // Certificates (learner)
+  const [myCertificates, setMyCertificates] = useState<any[]>([]);
+  const [isCertificatesLoading, setIsCertificatesLoading] = useState(false);
+
   // Selected course management page simulation
   // NOTE: We intentionally do NOT rehydrate from sessionStorage on hard refresh.
   // sessionStorage is only written to persist state across same-session soft navigations,
@@ -825,6 +829,25 @@ function DashboardPageContent() {
       loadLearnerProgress();
     }
   }, [isAdminOrEmployee, currentTab, loadLearnerProgress]);
+
+  // Load learner certificates when the Certificates tab is active
+  const loadMyCertificates = useCallback(async () => {
+    setIsCertificatesLoading(true);
+    try {
+      const res = await api.get("/certificates/mine");
+      setMyCertificates(res.data || []);
+    } catch {
+      setMyCertificates([]);
+    } finally {
+      setIsCertificatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAdminOrEmployee && currentTab === "certificates") {
+      loadMyCertificates();
+    }
+  }, [isAdminOrEmployee, currentTab, loadMyCertificates]);
 
   // Fetch user list for admin User Management
   const loadUsers = useCallback(async (q: string = "") => {
@@ -2925,42 +2948,104 @@ function DashboardPageContent() {
 
   // RENDER CERTIFICATES (User/Learner Only)
   const renderCertificates = () => {
-    const completedCourses = allCourses.filter((c) => learnerProgress[c.courseId] === 100);
+    const apiBase = (api.defaults.baseURL || "http://localhost:3000").replace(/\/$/, "");
+
+    const downloadCertificatePdf = async (certId: number) => {
+      try {
+        const res = await api.get(`/certificates/${certId}/pdf`, { responseType: "blob" });
+        const disposition = res.headers["content-disposition"] || "";
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : `certificate-${certId}.pdf`;
+        const url = URL.createObjectURL(res.data);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || "Failed to download certificate.");
+      }
+    };
+
+    const statusBadge = (status: string) => (
+      <span className={`px-2.5 py-1 rounded-full text-xs font-bold border capitalize ${
+        status === "pending" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+        : status === "issued" ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/40"
+        : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/40"
+      }`}>{status}</span>
+    );
 
     return (
       <div className="flex flex-col gap-6 pb-8 animate-fadeIn">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-zinc-50">My Certificates</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">View and print credentials for completed coursework.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Take every test in a course, then apply for an official TrainXcel certificate.</p>
         </div>
 
-        {completedCourses.length === 0 ? (
+        {isCertificatesLoading ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+            <Loader2 size={30} className="text-amber-500 animate-spin" />
+            <p className="text-xs text-slate-400 animate-pulse">Loading your certificates...</p>
+          </div>
+        ) : myCertificates.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#121212]">
             <Award size={42} className="text-slate-300" />
-            <h4 className="font-bold text-slate-800 dark:text-zinc-200">No Certificates Earned</h4>
-            <p className="text-xs text-slate-400 max-w-xs">Complete active courses to 100% progress rate to automatically generate credentials.</p>
+            <h4 className="font-bold text-slate-800 dark:text-zinc-200">No Certificates Yet</h4>
+            <p className="text-xs text-slate-400 max-w-sm">Complete all the tests inside an active course, then apply for a certificate from that course&apos;s Certifications tab.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {completedCourses.map((c) => (
-              <div key={c.courseId} className="relative overflow-hidden rounded-2xl border-2 border-amber-200 bg-amber-50/10 p-6 shadow-sm dark:border-amber-900/30 dark:bg-[#1a1613] animate-scaleIn">
+            {myCertificates.map((cert: any) => (
+              <div key={cert.id} className={`relative overflow-hidden rounded-2xl border-2 p-6 shadow-sm animate-scaleIn ${
+                cert.status === "issued" ? "border-amber-200 bg-amber-50/10 dark:border-amber-900/30 dark:bg-[#1a1613]"
+                : cert.status === "pending" ? "border-amber-300 bg-amber-50/40 dark:border-amber-900/50 dark:bg-[#1a1613]"
+                : "border-rose-200 bg-rose-50/20 dark:border-rose-900/40 dark:bg-[#1a1613]"
+              }`}>
                 <div className="absolute right-4 top-4 opacity-10 dark:opacity-20 text-amber-500">
                   <Award size={96} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                     <Award size={18} />
-                    <span className="text-xs font-bold uppercase tracking-wider">LMS Verified Credential</span>
+                    <span className="text-xs font-bold uppercase tracking-wider">TrainXcel Credential</span>
                   </div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-zinc-50 mt-4 text-xl tracking-tight">{c.name}</h3>
+                  <h3 className="font-extrabold text-slate-900 dark:text-zinc-50 mt-4 text-xl tracking-tight">{cert.courseName}</h3>
                   <p className="text-xs text-slate-500 dark:text-zinc-400 mt-2">
-                    Course Code: <span className="font-mono font-bold">{c.courseId}</span>
+                    Course Code: <span className="font-mono font-bold">{cert.courseId}</span>
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">Recipient Name: <span className="font-semibold text-slate-700 dark:text-zinc-300">{name}</span></p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Recipient: <span className="font-semibold text-slate-700 dark:text-zinc-300">{cert.userName}</span>
+                    {cert.certificateId && <span className="font-mono"> · {cert.certificateId}</span>}
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    {statusBadge(cert.status)}
+                    <span className="text-[10px] text-slate-400">Applied {new Date(cert.appliedAt || cert.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  {cert.status === "rejected" && cert.rejectionReason && (
+                    <div className="mt-3 p-3 rounded-xl border border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10">
+                      <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Rejected</p>
+                      <p className="text-xs text-slate-600 dark:text-zinc-300 mt-1">Reason: {cert.rejectionReason}</p>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-8 pt-4 border-t border-amber-100 dark:border-amber-900/30 flex justify-between items-center">
-                  <span className="text-[9px] text-amber-700 dark:text-amber-500 font-semibold uppercase">TrainXcel Training Program</span>
-                  <span className="text-xs font-bold text-green-600 dark:text-green-400">Active</span>
+                  {cert.status === "issued" ? (
+                    <div className="flex items-center gap-2">
+                      <a href={`${apiBase}${cert.certificateUrl}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm">
+                        <Eye size={12} /> View
+                      </a>
+                      <button type="button" onClick={() => downloadCertificatePdf(cert.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                        <FileText size={12} /> Download PDF
+                      </button>
+                    </div>
+                  ) : cert.status === "pending" ? (
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase">Under Review</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold text-rose-500 uppercase">Rejected</span>
+                  )}
+                  <span className="text-xs font-bold text-green-600 dark:text-green-400">{cert.status === "issued" ? "Active" : cert.status === "pending" ? "Pending" : "Rejected"}</span>
                 </div>
               </div>
             ))}

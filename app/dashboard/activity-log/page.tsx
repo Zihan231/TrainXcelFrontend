@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useUser } from "@/hooks/useUser";
 import { api } from "@/libs/api";
+import { getActionBadgeClasses, formatAction, getRoleBadgeClasses } from "@/libs/actionColors";
 import {
   Loader2,
   Search,
@@ -25,12 +26,17 @@ const TARGET_TYPES = [
   "RecycleBin",
 ];
 
-function formatAction(action: string) {
-  return action.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
-}
-
 function formatKey(key: string) {
   return key.replace(/([A-Z])/g, " $1").replace(/_/g, " ").toLowerCase();
+}
+
+function formatChange(item: any) {
+  if (item.from !== undefined && item.to !== undefined) {
+    return `Mark changed from ${item.from} to ${item.to}`;
+  }
+  if (item.from !== undefined) return `from ${item.from}`;
+  if (item.to !== undefined) return `to ${item.to}`;
+  return JSON.stringify(item);
 }
 
 function formatValue(v: any) {
@@ -54,8 +60,22 @@ function DetailsView({ details }: { details: any }) {
     <div className="flex flex-col gap-1">
       {entries.map(([k, v]) => (
         <div key={k} className="flex items-start gap-1.5">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 whitespace-nowrap">{formatKey(k)}:</span>
-          <span className="text-[10px] font-mono text-slate-600 dark:text-zinc-300 break-words">{formatValue(v)}</span>
+          <span className="text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">{formatKey(k)}:</span>
+          <span className="text-xs font-mono text-slate-600 dark:text-zinc-300 break-words">
+            {Array.isArray(v) ? (
+              v.length === 0 ? "—" : (
+                <span className="flex flex-col gap-0.5">
+                  {v.map((item: any, i: number) => (
+                    <span key={i} title={typeof item === "object" && item?.question ? String(item.question) : undefined}>
+                      {typeof item === "object" && item !== null ? formatChange(item) : String(item)}
+                    </span>
+                  ))}
+                </span>
+              )
+            ) : (
+              formatValue(v)
+            )}
+          </span>
         </div>
       ))}
     </div>
@@ -67,7 +87,7 @@ export default function ActivityLogPage() {
   const isAdmin = role === "admin";
 
   const [logs, setLogs] = useState<any[]>([]);
-  const [meta, setMeta] = useState<any>({ totalItems: 0, totalPages: 1, currentPage: 1, itemsPerPage: 20 });
+  const [meta, setMeta] = useState<any>({ totalItems: 0, totalPages: 1, currentPage: 1, itemsPerPage: 10 });
   const [loading, setLoading] = useState(false);
 
   const [q, setQ] = useState("");
@@ -98,7 +118,7 @@ export default function ActivityLogPage() {
     if (!isAdmin) return;
     setLoading(true);
     try {
-      const params: any = { page, limit: meta.itemsPerPage || 20 };
+      const params: any = { page, limit: meta.itemsPerPage || 10 };
       if (q.trim()) params.q = q.trim();
       if (action) params.action = action;
       if (targetType) params.targetType = targetType;
@@ -249,10 +269,10 @@ export default function ActivityLogPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="px-2 py-1 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 text-xs font-semibold">{log.actorRole}</span>
+                        <span className={`px-2 py-1 rounded border text-sm font-semibold ${getRoleBadgeClasses(log.actorRole)}`}>{log.actorRole}</span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold border whitespace-nowrap bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/40 border-blue-100">{formatAction(log.action)}</span>
+                        <span className={`px-2.5 py-1 rounded-full text-sm font-bold border whitespace-nowrap ${getActionBadgeClasses(log.action)}`}>{formatAction(log.action)}</span>
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex flex-col gap-0.5">
@@ -277,7 +297,7 @@ export default function ActivityLogPage() {
           )}
 
           {/* Pagination */}
-          {meta.totalPages > 1 && (
+          {logs.length > 0 && (
             <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-zinc-800 mt-4">
               <span className="text-xs text-slate-500">
                 Page {meta.currentPage} of {meta.totalPages}

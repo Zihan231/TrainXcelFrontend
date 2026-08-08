@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/libs/api";
+import { getActionBadgeClasses, formatAction, getRoleBadgeClasses } from "@/libs/actionColors";
 import { useCourses, Course, Lesson } from "@/hooks/useCourses";
 import { useTheme } from "@/context/ThemeContext";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -17,6 +18,7 @@ import {
   ArrowLeft, Play, FileText, Check, CheckCircle, ExternalLink,
   Maximize2, MonitorPlay, Sparkles, Settings, Pencil, Trash2,
   Award, Trophy, Loader2, Clock, Eye, X, Lock, GraduationCap,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -44,6 +46,53 @@ function getEmbedLink(url: string): string {
     }
   } catch {}
   return url;
+}
+
+function formatChange(item: any) {
+  if (item.from !== undefined && item.to !== undefined) {
+    return `Mark changed from ${item.from} to ${item.to}`;
+  }
+  if (item.from !== undefined) return `from ${item.from}`;
+  if (item.to !== undefined) return `to ${item.to}`;
+  return JSON.stringify(item);
+}
+
+function LogDetailsCell({ details }: { details: any }) {
+  if (!details || typeof details !== "object") {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+  const entries = Object.entries(details);
+  if (entries.length === 0) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+  return (
+    <div className="flex flex-col gap-1 max-w-[320px]">
+      {entries.map(([k, v]) => (
+        <div key={k} className="flex items-start gap-1.5">
+          <span className="text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap capitalize">
+            {k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").toLowerCase()}:
+          </span>
+          <span className="text-xs font-mono text-slate-600 dark:text-zinc-300 break-words">
+            {Array.isArray(v) ? (
+              v.length === 0 ? "—" : (
+                <span className="flex flex-col gap-0.5">
+                  {v.map((item: any, i: number) => (
+                    <span key={i} title={typeof item === "object" && item?.question ? String(item.question) : undefined}>
+                      {typeof item === "object" && item !== null ? formatChange(item) : String(item)}
+                    </span>
+                  ))}
+                </span>
+              )
+            ) : typeof v === "object" ? (
+              JSON.stringify(v)
+            ) : (
+              String(v)
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function DocxViewer({ url }: { url: string }) {
@@ -172,10 +221,13 @@ export function CourseDetailView({
 
   // ── Admin Tabs ────────────────────────────────────────────────────────────
   const [courseDetailsTab, setCourseDetailsTab] = useState<
-    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "ai-test" | "leaderboard" | "activity-log"
+    "player" | "add-lesson" | "add-test" | "student-marks" | "settings" | "evaluation" | "all-tests" | "ai-test" | "leaderboard" | "activity-log" | "certifications"
   >("player");
   const [showCourseSettingsEdit, setShowCourseSettingsEdit] = useState(false);
   const [showAddTestForm, setShowAddTestForm] = useState(false);
+
+  // ── Learner Tabs ──────────────────────────────────────────────────────────
+  const [studentViewTab, setStudentViewTab] = useState<"course" | "certifications">("course");
 
   // ── Edit Course ───────────────────────────────────────────────────────────
   const [editCourseName, setEditCourseName] = useState("");
@@ -232,6 +284,25 @@ export function CourseDetailView({
   const [courseActivityLogs, setCourseActivityLogs] = useState<any[]>([]);
   const [isActivityLogsLoading, setIsActivityLogsLoading] = useState(false);
   const [activityLogsError, setActivityLogsError] = useState("");
+  const [activityLogPage, setActivityLogPage] = useState(1);
+  const [activityLogMeta, setActivityLogMeta] = useState<any>({ totalItems: 0, totalPages: 1, currentPage: 1, itemsPerPage: 10 });
+
+  // ── Certificates (admin) ──────────────────────────────────────────────────
+  const [courseCertificates, setCourseCertificates] = useState<any[]>([]);
+  const [isCertificatesLoading, setIsCertificatesLoading] = useState(false);
+  const [certificatesError, setCertificatesError] = useState("");
+  const [verifyCertificate, setVerifyCertificate] = useState<any | null>(null);
+  const [isVerifyLoading, setIsVerifyLoading] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isGeneratingCert, setIsGeneratingCert] = useState(false);
+  const [isRejectingCert, setIsRejectingCert] = useState(false);
+
+  // ── Certificates (learner) ────────────────────────────────────────────────
+  const [certEligibility, setCertEligibility] = useState<any | null>(null);
+  const [isCertEligibilityLoading, setIsCertEligibilityLoading] = useState(false);
+  const [isApplyingCert, setIsApplyingCert] = useState(false);
 
   // ── Admin Leaderboard ─────────────────────────────────────────────────────
   const [adminLeaderboardLessonId, setAdminLeaderboardLessonId] = useState<string>("");
@@ -762,20 +833,154 @@ export function CourseDetailView({
     setIsActivityLogsLoading(true);
     setActivityLogsError("");
     try {
-      const res = await api.get(`/activity-logs/course/${courseId}`);
+      const res = await api.get(`/activity-logs/course/${courseId}`, {
+        params: { page: activityLogPage, limit: 10 },
+      });
       setCourseActivityLogs(res.data?.data || []);
+      setActivityLogMeta(res.data?.meta || {});
     } catch {
       setActivityLogsError("Failed to load activity log.");
     } finally {
       setIsActivityLogsLoading(false);
     }
-  }, [courseId, isAdmin]);
+  }, [courseId, isAdmin, activityLogPage]);
+
+  useEffect(() => {
+    if (courseDetailsTab === "activity-log") {
+      setActivityLogPage(1);
+    }
+  }, [courseDetailsTab]);
 
   useEffect(() => {
     if (courseDetailsTab === "activity-log") {
       loadCourseActivityLogs();
     }
   }, [courseDetailsTab, loadCourseActivityLogs]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Certificates (admin) — course applications
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadCourseCertificates = useCallback(async () => {
+    setIsCertificatesLoading(true);
+    try {
+      const res = await api.get(`/certificates/course/${courseId}`);
+      setCourseCertificates(res.data || []);
+      setCertificatesError("");
+    } catch (err: any) {
+      setCertificatesError(err.response?.data?.message || "Failed to load certificate applications.");
+    } finally {
+      setIsCertificatesLoading(false);
+    }
+  }, [courseId]);
+
+  useEffect(() => {
+    if (courseDetailsTab === "certifications") {
+      loadCourseCertificates();
+    }
+  }, [courseDetailsTab, loadCourseCertificates]);
+
+  const openVerifyCertificate = async (certId: number) => {
+    setVerifyCertificate(null);
+    setShowRejectInput(false);
+    setRejectReason("");
+    setVerifyError("");
+    setIsVerifyLoading(true);
+    try {
+      const res = await api.get(`/certificates/${certId}`);
+      setVerifyCertificate(res.data);
+    } catch (err: any) {
+      setVerifyError(err.response?.data?.message || "Failed to load application details.");
+    } finally {
+      setIsVerifyLoading(false);
+    }
+  };
+
+  const handleGenerateCertificate = async () => {
+    if (!verifyCertificate) return;
+    setIsGeneratingCert(true);
+    try {
+      const res = await api.post(`/certificates/${verifyCertificate.certificate.id}/generate`);
+      toast.success(`Certificate ${res.data.certificateId} generated successfully!`);
+      setVerifyCertificate(null);
+      await loadCourseCertificates();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to generate certificate.");
+    } finally {
+      setIsGeneratingCert(false);
+    }
+  };
+
+  const handleRejectCertificate = async () => {
+    if (!verifyCertificate) return;
+    if (!rejectReason.trim()) {
+      toast.error("Please provide a reason for rejection.");
+      return;
+    }
+    setIsRejectingCert(true);
+    try {
+      const res = await api.post(`/certificates/${verifyCertificate.certificate.id}/reject`, { reason: rejectReason.trim() });
+      toast.success(`Application ${res.data.certificateId} rejected.`);
+      setVerifyCertificate(null);
+      await loadCourseCertificates();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to reject certificate.");
+    } finally {
+      setIsRejectingCert(false);
+    }
+  };
+
+  const downloadCertificatePdf = async (certId: number) => {
+    try {
+      const res = await api.get(`/certificates/${certId}/pdf`, { responseType: "blob" });
+      const disposition = res.headers["content-disposition"] || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : `certificate-${certId}.pdf`;
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to download certificate.");
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Certificates (learner) — eligibility + apply
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadCertEligibility = useCallback(async () => {
+    setIsCertEligibilityLoading(true);
+    try {
+      const res = await api.get(`/certificates/eligibility/${courseId}`);
+      setCertEligibility(res.data);
+    } catch {
+      setCertEligibility(null);
+    } finally {
+      setIsCertEligibilityLoading(false);
+    }
+  }, [courseId]);
+
+  useEffect(() => {
+    if (!isAdminOrEmployee && studentViewTab === "certifications") {
+      loadCertEligibility();
+    }
+  }, [studentViewTab, isAdminOrEmployee, loadCertEligibility]);
+
+  const handleApplyCertificate = async () => {
+    setIsApplyingCert(true);
+    try {
+      await api.post("/certificates/apply", { courseId });
+      toast.success("Certificate application submitted! An admin will review it shortly.");
+      await loadCertEligibility();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to submit certificate application.");
+    } finally {
+      setIsApplyingCert(false);
+    }
+  };
 
   const handleDeleteTest = async (testId: number, type: 'standalone' | 'final') => {
     try {
@@ -879,8 +1084,148 @@ export function CourseDetailView({
           )}
         </div>
 
+        {/* Learner Tabs */}
+        {!isAdminOrEmployee && (
+          <div className="flex border-b border-slate-200 dark:border-zinc-800 overflow-x-auto">
+            {(["course", "certifications"] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setStudentViewTab(tab)}
+                className={`pb-3 text-sm font-semibold px-4 whitespace-nowrap transition ${studentViewTab === tab ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
+              >
+                {tab === "course" ? "Course Content" : "Certifications"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Learner Certifications Panel */}
+        {!isAdminOrEmployee && studentViewTab === "certifications" && (
+          <div className="flex flex-col gap-4">
+            {isCertEligibilityLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <Loader2 size={28} className="text-blue-500 animate-spin" />
+                <span className="text-xs text-slate-400 font-medium animate-pulse">Checking your certificate eligibility...</span>
+              </div>
+            ) : !certEligibility ? (
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 p-8 text-center">
+                <p className="text-xs text-red-500">Failed to load certificate information. Please try again.</p>
+              </div>
+            ) : (
+              <>
+                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 p-6 flex flex-col gap-4 animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <Award size={18} className="text-amber-500" />
+                    <h4 className="font-bold text-slate-900 dark:text-zinc-50">Certifications</h4>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400">Take every test in this course to unlock your certificate. Once submitted, an admin will review and generate it.</p>
+
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-zinc-800">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-bold text-slate-700 dark:text-zinc-200">Tests Completed</span>
+                      <span className="text-xs text-slate-500">{certEligibility.takenTests} of {certEligibility.totalTests}</span>
+                    </div>
+                    <div className="flex flex-col gap-0.5 text-right">
+                      <span className="text-xs font-bold text-slate-700 dark:text-zinc-200">Eligibility</span>
+                      {certEligibility.eligible ? (
+                        <span className="text-xs font-bold text-green-600 dark:text-green-400">Eligible</span>
+                      ) : (
+                        <span className="text-xs font-bold text-rose-500">Not yet eligible</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {!certEligibility.eligible && certEligibility.missingTests?.length > 0 && (
+                    <div className="flex flex-col gap-1.5 p-4 rounded-xl border border-amber-200 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10">
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Tests still required</span>
+                      {certEligibility.missingTests.map((t: any) => (
+                        <span key={t.testId} className="text-xs text-slate-600 dark:text-zinc-300 flex items-center gap-1.5">
+                          <X size={11} className="text-amber-500 shrink-0" /> {t.title} <span className="text-[10px] text-slate-400 font-mono">({t.testType})</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {!certEligibility.myCertificate && (
+                    <button
+                      type="button"
+                      onClick={handleApplyCertificate}
+                      disabled={!certEligibility.eligible || isApplyingCert}
+                      className="self-start flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition shadow-sm"
+                    >
+                      {isApplyingCert ? <><Loader2 size={14} className="animate-spin" /> Applying...</> : <><Award size={14} /> Apply for Certificate</>}
+                    </button>
+                  )}
+                </div>
+
+                {certEligibility.myCertificate && (
+                  <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 p-6 flex flex-col gap-4 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Award size={18} className="text-amber-500" />
+                        <h4 className="font-bold text-slate-900 dark:text-zinc-50">Your Application</h4>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold border capitalize ${
+                        certEligibility.myCertificate.status === "pending" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+                        : certEligibility.myCertificate.status === "issued" ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/40"
+                        : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/40"
+                      }`}>{certEligibility.myCertificate.status}</span>
+                    </div>
+
+                    {certEligibility.myCertificate.status === "pending" && (
+                      <p className="text-xs text-slate-500 dark:text-zinc-400">Your application is under review. You&apos;ll be notified once it&apos;s generated or rejected.</p>
+                    )}
+
+                    {certEligibility.myCertificate.status === "rejected" && (
+                      <div className="flex flex-col gap-1.5 p-4 rounded-xl border border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10">
+                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Rejected</span>
+                        <p className="text-xs text-slate-600 dark:text-zinc-300">Reason: {certEligibility.myCertificate.rejectionReason || "No reason provided"}</p>
+                        <p className="text-[10px] text-slate-400 mt-1">You can re-apply for a certificate for this course.</p>
+                      </div>
+                    )}
+
+                    {certEligibility.myCertificate.status === "rejected" && certEligibility.eligible && (
+                      <button
+                        type="button"
+                        onClick={handleApplyCertificate}
+                        disabled={isApplyingCert}
+                        className="self-start flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition shadow-sm"
+                      >
+                        {isApplyingCert ? <><Loader2 size={14} className="animate-spin" /> Applying...</> : <><Award size={14} /> Re-apply</>}
+                      </button>
+                    )}
+
+                    {certEligibility.myCertificate.status === "issued" && (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-xs text-slate-500 dark:text-zinc-400">Congratulations! Your certificate is ready. View it online or download a PDF copy.</p>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`${apiBase}${certEligibility.myCertificate.certificateUrl}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm"
+                          >
+                            <Eye size={13} /> View Certificate
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => downloadCertificatePdf(certEligibility.myCertificate.id)}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          >
+                            <FileText size={13} /> Download PDF
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {/* Dynamic Split Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 items-start ${!isAdminOrEmployee && studentViewTab === "certifications" ? "hidden" : ""}`}>
 
           {/* MIDDLE COLUMN - Content Player & Sub-actions (70% width on Desktop) */}
           <div className="lg:col-span-2 flex flex-col gap-6">
@@ -1033,7 +1378,7 @@ export function CourseDetailView({
                 {isAdminOrEmployee && (
                   <div className="flex flex-col gap-4">
                     <div className="flex border-b border-slate-200 dark:border-zinc-800 overflow-x-auto">
-                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard", "activity-log"] as const)
+                      {(["player", "add-lesson", "student-marks", "evaluation", "all-tests", "leaderboard", "activity-log", "certifications"] as const)
                         .filter(tab => tab !== "activity-log" || isAdmin)
                         .map(tab => (
                         <button
@@ -1041,7 +1386,7 @@ export function CourseDetailView({
                           onClick={() => setCourseDetailsTab(tab)}
                           className={`pb-3 text-sm font-semibold px-4 whitespace-nowrap transition ${courseDetailsTab === tab ? "border-b-2 border-blue-600 text-blue-600 dark:text-blue-400" : "text-slate-400 hover:text-slate-600"}`}
                         >
-                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : tab === "activity-log" ? "Activity Log" : "Leaderboard"}
+                          {tab === "player" ? "Course Info" : tab === "add-lesson" ? "Add Lesson" : tab === "student-marks" ? "Student Marks" : tab === "evaluation" ? "Evaluation" : tab === "all-tests" ? "All Tests" : tab === "activity-log" ? "Activity Log" : tab === "certifications" ? "Certifications" : "Leaderboard"}
                         </button>
                       ))}
                     </div>
@@ -1359,6 +1704,9 @@ export function CourseDetailView({
                               <h4 className="font-bold text-slate-900 dark:text-zinc-50">Activity Log</h4>
                               <p className="text-xs text-slate-500">Audit trail for actions performed on this course.</p>
                             </div>
+                            <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full">
+                              {activityLogMeta.totalItems} record{activityLogMeta.totalItems !== 1 ? "s" : ""}
+                            </span>
                           </div>
                           {isActivityLogsLoading ? (
                             <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading activity...</span></div>
@@ -1371,12 +1719,12 @@ export function CourseDetailView({
                               <table className="w-full text-left">
                                 <thead className="bg-slate-50 dark:bg-zinc-800/50">
                                   <tr>
-                                    {["Date", "Admin", "Role", "Action", "Target"].map(h => <th key={h} className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{h}</th>)}
+                                    {["Date", "Admin", "Role", "Action", "Target", "Details"].map(h => <th key={h} className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{h}</th>)}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {courseActivityLogs.map((log: any) => (
-                                    <tr key={log.id} className="border-b border-slate-100 dark:border-zinc-800">
+                                    <tr key={log.id} className="border-b border-slate-100 dark:border-zinc-800 align-top">
                                       <td className="py-3 px-4 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap">{new Date(log.createdAt).toLocaleString()}</td>
                                       <td className="py-3 px-4">
                                         <div className="flex flex-col gap-0.5">
@@ -1384,18 +1732,45 @@ export function CourseDetailView({
                                           <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 font-mono text-[10px] font-semibold tracking-wide w-fit">{log.actorId}</span>
                                         </div>
                                       </td>
-                                      <td className="py-3 px-4"><span className="px-2 py-1 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 text-xs font-semibold">{log.actorRole}</span></td>
-                                      <td className="py-3 px-4"><span className="px-2.5 py-1 rounded-full text-xs font-bold border whitespace-nowrap bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/40 border-blue-100">{log.action.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span></td>
+                                      <td className="py-3 px-4"><span className={`px-2 py-1 rounded border text-sm font-semibold ${getRoleBadgeClasses(log.actorRole)}`}>{log.actorRole}</span></td>
+                                      <td className="py-3 px-4"><span className={`px-2.5 py-1 rounded-full text-sm font-bold border whitespace-nowrap ${getActionBadgeClasses(log.action)}`}>{formatAction(log.action)}</span></td>
                                       <td className="py-3 px-4">
                                         <div className="flex flex-col gap-0.5">
                                           <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">{log.targetName || "—"}</span>
                                           <span className="text-[10px] text-slate-400 font-mono">{log.targetType ? `${log.targetType}${log.targetId ? ` · ${log.targetId}` : ""}` : ""}</span>
                                         </div>
                                       </td>
+                                      <td className="py-3 px-4">
+                                        <LogDetailsCell details={log.details} />
+                                      </td>
                                     </tr>
                                   ))}
                                 </tbody>
                               </table>
+                            </div>
+                          )}
+
+                          {courseActivityLogs.length > 0 && (
+                            <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-zinc-800 mt-4">
+                              <span className="text-xs text-slate-500">
+                                Page {activityLogMeta.currentPage} of {activityLogMeta.totalPages}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setActivityLogPage(Math.max(1, activityLogPage - 1))}
+                                  disabled={activityLogPage <= 1}
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                >
+                                  <ChevronLeft size={14} /> Prev
+                                </button>
+                                <button
+                                  onClick={() => setActivityLogPage(Math.min(activityLogMeta.totalPages, activityLogPage + 1))}
+                                  disabled={activityLogPage >= activityLogMeta.totalPages}
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                >
+                                  Next <ChevronRight size={14} />
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1410,6 +1785,77 @@ export function CourseDetailView({
                             courseLessons={courseLessons}
                             enrolledCount={course.enrolled}
                           />
+                        </div>
+                      )}
+
+                      {/* Certifications Tab */}
+                      {courseDetailsTab === "certifications" && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 dark:bg-zinc-900 dark:border-zinc-800 animate-fadeIn">
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <h4 className="font-bold text-slate-900 dark:text-zinc-50">Certifications</h4>
+                              <p className="text-xs text-slate-500">Review certificate applications submitted by learners for this course.</p>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">{courseCertificates.length} Application{courseCertificates.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          {isCertificatesLoading ? (
+                            <div className="flex flex-col items-center justify-center py-10 gap-3"><Loader2 size={24} className="text-blue-500 animate-spin" /><span className="text-xs text-slate-400 font-medium animate-pulse">Loading applications...</span></div>
+                          ) : certificatesError ? (
+                            <p className="text-xs text-red-500">{certificatesError}</p>
+                          ) : courseCertificates.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-14 gap-3 text-center">
+                              <Award size={38} className="text-slate-300" />
+                              <p className="text-xs text-slate-400">No certificate applications yet. When a learner takes all the tests in this course, they can apply here.</p>
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left">
+                                <thead className="bg-slate-50 dark:bg-zinc-800/50">
+                                  <tr>
+                                    {["Student", "Student ID", "Applied On", "Status", "Action"].map(h => <th key={h} className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{h}</th>)}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {courseCertificates.map((cert: any) => (
+                                    <tr key={cert.id} className="border-b border-slate-100 dark:border-zinc-800">
+                                      <td className="py-3 px-4">
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-sm font-bold text-slate-800 dark:text-zinc-100">{cert.userName}</span>
+                                          <span className="text-xs text-slate-500">{cert.applicant?.email || "—"}</span>
+                                        </div>
+                                      </td>
+                                      <td className="py-3 px-4"><span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 font-mono text-[10px] font-semibold tracking-wide w-fit">{cert.userId}</span></td>
+                                      <td className="py-3 px-4 text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap">{new Date(cert.appliedAt || cert.createdAt).toLocaleString()}</td>
+                                      <td className="py-3 px-4">
+                                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold border capitalize ${
+                                          cert.status === "pending" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+                                          : cert.status === "issued" ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/40"
+                                          : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/40"
+                                        }`}>{cert.status}</span>
+                                        {cert.status === "rejected" && cert.rejectionReason && (
+                                          <div className="mt-1 text-[10px] text-rose-500 line-clamp-2 max-w-[220px]">Reason: {cert.rejectionReason}</div>
+                                        )}
+                                      </td>
+                                      <td className="py-3 px-4">
+                                        {cert.status === "pending" ? (
+                                          <button type="button" onClick={() => openVerifyCertificate(cert.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm">
+                                            <Eye size={13} /> Verify
+                                          </button>
+                                        ) : cert.status === "issued" ? (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] font-mono text-slate-400">{cert.certificateId}</span>
+                                            <a href={`${apiBase}${cert.certificateUrl}`} target="_blank" rel="noreferrer" className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-[11px] font-bold transition dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">View PDF</a>
+                                          </div>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-400">—</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2141,6 +2587,141 @@ export function CourseDetailView({
                 standaloneExam={evaluatingFinalExam}
                 onClearStandalone={() => setEvaluatingFinalExam(null)}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Certificate Verify Modal (Admin) */}
+      {verifyCertificate && isAdminOrEmployee && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" onClick={() => { if (!isGeneratingCert && !isRejectingCert) setVerifyCertificate(null); }}>
+          <div className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#121212] animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-50 flex items-center gap-2"><Award size={18} className="text-amber-500" /> Verify Certificate Application</h3>
+              <button onClick={() => { if (!isGeneratingCert && !isRejectingCert) setVerifyCertificate(null); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 transition"><X size={18} /></button>
+            </div>
+            <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+              {isVerifyLoading ? (
+                <div className="flex flex-col items-center justify-center py-14 gap-3">
+                  <Loader2 size={26} className="text-blue-500 animate-spin" />
+                  <span className="text-xs text-slate-400 font-medium animate-pulse">Loading application details...</span>
+                </div>
+              ) : verifyError ? (
+                <p className="text-xs text-red-500 text-center py-10">{verifyError}</p>
+              ) : verifyCertificate ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 dark:border-zinc-800 dark:bg-zinc-900/30">
+                      <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Student</h5>
+                      <div className="flex items-center gap-3">
+                        {verifyCertificate.applicant?.profilePictureUrl && (
+                          <img src={verifyCertificate.applicant.profilePictureUrl.startsWith("/") ? `${apiBase}${verifyCertificate.applicant.profilePictureUrl}` : verifyCertificate.applicant.profilePictureUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-slate-200 dark:border-zinc-700" />
+                        )}
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">{verifyCertificate.applicant?.name || verifyCertificate.certificate.userName}</span>
+                          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 rounded border border-purple-100 dark:border-purple-900/30 font-mono text-[10px] font-semibold tracking-wide w-fit">{verifyCertificate.certificate.userId}</span>
+                          <span className="text-xs text-slate-500">{verifyCertificate.applicant?.email || ""}</span>
+                        </div>
+                      </div>
+                      {verifyCertificate.applicant?.phoneNumber && <p className="text-xs text-slate-500 mt-2">📞 {verifyCertificate.applicant.phoneNumber}</p>}
+                    </div>
+                    <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 dark:border-zinc-800 dark:bg-zinc-900/30">
+                      <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Course</h5>
+                      <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">{verifyCertificate.certificate.courseName}</span>
+                      <span className="block text-[11px] text-slate-500 font-mono mt-0.5">{verifyCertificate.certificate.courseId}</span>
+                      {verifyCertificate.course?.category?.name && <span className="text-xs text-slate-500 mt-1 block">Category: {verifyCertificate.course.category.name}</span>}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Test Performance</h5>
+                    {verifyCertificate.tests.length === 0 ? (
+                      <p className="text-xs text-slate-400 py-3 text-center">No tests found for this course.</p>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-zinc-800">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50 dark:bg-zinc-800/50">
+                            <tr>
+                              {["Test", "Type", "Marks", "Status", "Submitted"].map(h => <th key={h} className="py-2.5 px-4 text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{h}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {verifyCertificate.tests.map((t: any) => (
+                              <tr key={t.testId} className="border-b border-slate-100 dark:border-zinc-800">
+                                <td className="py-3 px-4">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-xs font-bold text-slate-800 dark:text-zinc-100">{t.title}</span>
+                                    {t.lessonTitle && <span className="text-[10px] text-slate-400">{t.lessonTitle}</span>}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4"><span className="text-[11px] font-mono text-slate-500">{t.testType}</span></td>
+                                <td className="py-3 px-4">
+                                  {t.submission?.submitted ? (
+                                    <span className="text-xs font-bold text-slate-800 dark:text-zinc-100">{t.submission.marksObtained ?? 0}<span className="text-slate-400 font-normal"> / {t.totalMarks}</span></span>
+                                  ) : (
+                                    <span className="text-xs text-rose-500 font-bold">Not taken</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border capitalize ${
+                                    t.submission?.submitted && t.submission.status === "Evaluated"
+                                      ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/20 dark:text-green-400 dark:border-green-900/40"
+                                      : t.submission?.submitted
+                                      ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+                                      : "bg-slate-50 text-slate-500 border-slate-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                                  }`}>{t.submission?.submitted ? t.submission.status : "Not taken"}</span>
+                                </td>
+                                <td className="py-3 px-4 text-[11px] text-slate-500 dark:text-zinc-400 whitespace-nowrap">{t.submission?.submittedAt ? new Date(t.submission.submittedAt).toLocaleString() : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {showRejectInput && (
+                    <div className="flex flex-col gap-2 p-4 rounded-xl border border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10 animate-fadeIn">
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Rejection Reason (required)</span>
+                      <textarea
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.target.value)}
+                        placeholder="Explain why this application is not valid..."
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 min-h-[70px]"
+                      />
+                      <div className="flex items-center gap-2 justify-end">
+                        <button type="button" onClick={() => { setShowRejectInput(false); setRejectReason(""); }} className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+                        <button type="button" onClick={handleRejectCertificate} disabled={isRejectingCert} className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold">
+                          {isRejectingCert ? "Rejecting..." : "Confirm Reject"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 justify-end pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                    {!showRejectInput && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setShowRejectInput(true)}
+                          disabled={isGeneratingCert || isRejectingCert}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-rose-200 text-rose-600 text-xs font-bold hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/40 dark:text-rose-400 dark:hover:bg-rose-950/20 transition"
+                        >
+                          <X size={13} /> Reject
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGenerateCertificate}
+                          disabled={isGeneratingCert || isRejectingCert}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-sm"
+                        >
+                          {isGeneratingCert ? <><Loader2 size={13} className="animate-spin" /> Generating...</> : <><Award size={13} /> Generate Certificate</>}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
