@@ -10,7 +10,7 @@ type GenerationStatus = "idle" | "generating" | "completed" | "failed";
 interface PracticeTestBuilderModalProps {
   lesson: { id: number; title: string };
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (testId?: number) => void;
   testIndex?: number;
 }
 
@@ -58,7 +58,7 @@ export function PracticeTestBuilderModal({
             setStatus("completed");
             toast.success("Practice test generated successfully!");
             if (pollRef.current) clearInterval(pollRef.current);
-            onSuccessRef.current?.();
+            onSuccessRef.current?.(data.testId);
             onClose();
           } else if (data.status === "failed") {
             lastStatus = data.status;

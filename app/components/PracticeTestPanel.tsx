@@ -38,9 +38,11 @@ export function PracticeTestPanel({ lesson }: PracticeTestPanelProps) {
         }
       }));
       setSubmissions(subs);
+      return data;
     } catch {
       setTests([]);
       setSubmissions({});
+      return [];
     } finally {
       setLoading(false);
     }
@@ -192,7 +194,13 @@ export function PracticeTestPanel({ lesson }: PracticeTestPanelProps) {
           lesson={lesson}
           testIndex={tests.length + 1}
           onClose={() => setShowBuilder(false)}
-          onSuccess={() => fetchPracticeTests()}
+          onSuccess={async (testId) => {
+            const data = await fetchPracticeTests();
+            const generated = testId
+              ? data.find((t: any) => t.id === testId)
+              : data[data.length - 1];
+            if (generated) setActiveTest(generated);
+          }}
         />
       )}
 
